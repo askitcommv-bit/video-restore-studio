@@ -1,0 +1,7 @@
+# Desktop app (main.py) and the packaged exe. RelayVSR has its own venv (see README),
+# LTX / SoL engines run inside ComfyUI.
+PySide6>=6.8
+opencv-python>=4.10
+numpy>=1.26
+requests>=2.31
+Pillow>=10.0
