@@ -12,7 +12,7 @@ if not exist ".build\venv\Scripts\python.exe" (
 uv pip install --python .build\venv\Scripts\python.exe -r requirements-app.txt pyinstaller==6.16.0 || exit /b 1
 
 .build\venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --windowed ^
-    --name VideoRestoreStudio ^
+    --name VideoRestoreStudio --icon "%~dp0app\ui\assets\logo.ico" ^
     --distpath dist --workpath .build\work --specpath .build ^
     --add-data "%~dp0app\ui\assets;app\ui\assets" ^
     --exclude-module torch --exclude-module transformers --exclude-module tkinter ^

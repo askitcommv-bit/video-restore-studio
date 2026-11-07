@@ -9,7 +9,10 @@ if root_dir not in sys.path:
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from app.ui.main_window import MainWindow
+
+LOGO = Path(root_dir) / "app" / "ui" / "assets" / "logo.ico"
 
 
 def main():
@@ -17,6 +20,11 @@ def main():
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    app.setWindowIcon(QIcon(str(LOGO)))
+    if sys.platform == "win32":
+        # Own taskbar identity, so Windows shows the app's icon instead of python.exe's when run from source
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("askit.VideoRestoreStudio")
 
     window = MainWindow()
     window.show()

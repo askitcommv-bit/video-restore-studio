@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QLabel, QFileDialog, QMessageBox,
@@ -131,6 +132,14 @@ class MainWindow(QMainWindow):
         header = QHBoxLayout()
         header.setContentsMargins(4, 0, 0, 0)
         header.setSpacing(12)
+        logo = QLabel()
+        dpr = self.devicePixelRatioF()
+        pm = QPixmap(str(styles._ASSETS_DIR / "logo.png"))
+        pm = pm.scaled(round(22 * dpr), round(22 * dpr), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pm.setDevicePixelRatio(dpr)
+        logo.setPixmap(pm)
+        header.addWidget(logo)
+        header.addSpacing(-4)
         title_lbl = QLabel("Video Restore")
         title_lbl.setObjectName("title")
         header.addWidget(title_lbl)

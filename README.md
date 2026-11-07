@@ -1,3 +1,5 @@
+<img src="docs/logo.png" alt="" width="96" align="right">
+
 # Video Restore Studio
 
 A local desktop app for upscaling and restoring old video on a single consumer GPU
