@@ -98,7 +98,8 @@ class QueueWorker(QThread):
                 extract_depth=self.params.get("extract_depth", False),
                 clean_noise=self.params.get("clean_noise"),
                 stabilize_jitter=self.params.get("stabilize_jitter"),
-                progress_callback=on_progress
+                progress_callback=on_progress,
+                output_codec=self.params.get("output_codec", "auto"),
             )
             if not self._is_cancelled:
                 self.finished.emit(res)

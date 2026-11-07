@@ -36,6 +36,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import config
 import video_preprocessor
+import video_encoders
 import comparison_generator
 import model_downloader
 
@@ -1385,7 +1386,8 @@ class VideoRestorationPipeline:
         enable_teacache: Optional[bool] = None,
         teacache_thresh: float = 0.06,
         auto_compare: bool = True,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        output_codec: str = "auto",  # 'auto' (best HEVC encoder, else H.264), 'hevc', 'h264'
     ) -> Dict[str, Any]:
         input_path = Path(input_video_path)
         if not input_path.exists():
@@ -1589,6 +1591,7 @@ class VideoRestorationPipeline:
                 auto_compare=auto_compare,
                 progress_callback=progress_callback,
                 done_segments=relay_done_segments,
+                output_codec=output_codec,
             )
 
         # Step 2b: 3D Scene Depth Geometry Extraction (if requested)
@@ -1822,6 +1825,7 @@ class VideoRestorationPipeline:
         final_info, comparison_res = self._deliver_output(
             latest_vid, audio_extracted_path, final_output_path, prepared_video_path,
             auto_compare, progress_callback, keep_source=True, done_text="Restoration Complete!",
+            output_codec=output_codec,
         )
 
         return {
@@ -2080,11 +2084,26 @@ class VideoRestorationPipeline:
         progress_callback: Optional[Callable[[int, int, str], None]],
         keep_source: bool,
         done_text: str,
+        output_codec: str = "auto",
     ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
-        """Muxes audio onto the rendered video at its final path, then renders comparisons.
-        keep_source=False consumes `rendered` (a temp file) instead of copying it."""
-        if audio_path and audio_path.exists():
-            video_preprocessor.mux_audio_and_video(rendered, audio_path, final_output_path)
+        """Muxes audio (AAC) onto the rendered video at its final path, re-encoding the video to HEVC
+        on the best encoder this machine has unless output_codec is 'h264' (or none works), then
+        renders comparisons. keep_source=False consumes `rendered` (a temp file) instead of copying it."""
+        codec, encoder = video_encoders.resolve(output_codec)
+        if progress_callback:
+            progress_callback(92, 100, f"Encoding HEVC on {encoder.label} and adding audio..." if encoder
+                              else "Adding audio and finalizing output...")
+        print(f"  Output video: {video_encoders.describe(output_codec)}")
+        if encoder is not None or (audio_path and audio_path.exists()):
+            try:
+                video_preprocessor.mux_audio_and_video(rendered, audio_path, final_output_path, encoder=encoder)
+            except subprocess.CalledProcessError as e:
+                if encoder is None:
+                    raise
+                # Never lose a finished render to the final re-encode (driver hiccup, odd frame size):
+                # deliver the rendered H.264 stream instead
+                print(f"  [Output] {encoder.label} HEVC encode failed ({(e.stderr or '').strip()[-200:]}); keeping H.264.")
+                video_preprocessor.mux_audio_and_video(rendered, audio_path, final_output_path, encoder=None)
             if not keep_source:
                 rendered.unlink(missing_ok=True)
         elif keep_source:
@@ -2126,6 +2145,7 @@ class VideoRestorationPipeline:
         auto_compare: bool,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
         done_segments: int = 0,
+        output_codec: str = "auto",
     ) -> Dict[str, Any]:
         """Runs RelayVSR in its own virtualenv as a subprocess, then muxes audio & renders comparisons.
         Output is rendered as resumable segments: if the job stops, the finished part is saved as
@@ -2219,12 +2239,11 @@ class VideoRestorationPipeline:
         raw_out = config.INPUTS_DIR / f"{final_output_path.stem}_relayvsr_raw.mp4"
         self._concat_segments(sorted(parts_dir.glob("seg_*.mp4")), raw_out)
 
-        if progress_callback:
-            progress_callback(92, 100, "Muxing lossless audio and finalizing output...")
-        print("\n[STEP 5/5] Finalizing audio...")
+        print("\n[STEP 5/5] Finalizing audio and video...")
         final_info, comparison_res = self._deliver_output(
             raw_out, audio_extracted_path, final_output_path, prepared_video_path,
             auto_compare, progress_callback, keep_source=False, done_text="RelayVSR Upscale Complete!",
+            output_codec=output_codec,
         )
         shutil.rmtree(parts_dir, ignore_errors=True)
         final_output_path.with_name(f"{final_output_path.stem}_partial.mp4").unlink(missing_ok=True)

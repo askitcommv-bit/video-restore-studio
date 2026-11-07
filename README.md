@@ -33,6 +33,10 @@ can't read may come out as letter-like shapes, so check scenes where small writi
 - **Exact sync**: constant-frame-rate preprocessing with the source's rational frame rate and
   sample-exact audio trimming, so output length and A/V sync match the source.
 - **Compare**: Original / Restored / Split / Side-by-side in the player, plus exported comparison videos.
+- **Smaller files, automatically**: the final video is HEVC (about half the size of H.264, no visible
+  difference) with AAC audio. The app test-encodes with NVIDIA NVENC, Intel Quick Sync, AMD AMF and x265
+  and uses the first that works on the machine, or keeps H.264 if none does. H.264 can be chosen under
+  Customize for very old players.
 
 ## Requirements
 

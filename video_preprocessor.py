@@ -353,31 +353,32 @@ def mux_audio_and_video(
     video_path: Path | str,
     audio_path: Path | str,
     output_path: Path | str,
-    shortest: bool = True
+    shortest: bool = True,
+    encoder=None,
 ) -> Path:
-    """Muxes audio and video tracks without re-encoding video."""
+    """Muxes audio (as AAC) with the video. The video stream is copied, or re-encoded with
+    `encoder` (a video_encoders.Encoder, e.g. HEVC on NVENC) when one is given."""
+    import video_encoders
     video_path = Path(video_path)
-    audio_path = Path(audio_path)
+    audio_path = Path(audio_path) if audio_path else None
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # If audio is missing or 0 bytes, copy video without failing
-    if not audio_path.exists() or audio_path.stat().st_size == 0:
+    has_audio = audio_path is not None and audio_path.exists() and audio_path.stat().st_size > 0
+
+    if not has_audio and encoder is None:
         import shutil
         shutil.copyfile(video_path, output_path)
         return output_path
-    
+
     # -shortest cuts at an AAC packet boundary and dropped up to ~4 trailing video frames;
     # trimming the output to the video's exact duration keeps every frame.
-    video_duration = get_video_info(video_path)["duration"] if shortest else 0
+    video_duration = get_video_info(video_path)["duration"] if shortest and has_audio else 0
     cmd = [
         "ffmpeg", "-y",
         "-i", str(video_path),
-        "-i", str(audio_path),
-        "-map", "0:v:0", "-map", "1:a:0",
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "192k",
+        *(["-i", str(audio_path)] if has_audio else []),
+        "-map", "0:v:0", *(["-map", "1:a:0", "-c:a", "aac", "-b:a", "192k"] if has_audio else []),
+        *video_encoders.video_args(encoder),
         "-movflags", "+faststart",
         *(["-t", f"{video_duration:.3f}"] if video_duration > 0 else []),
         str(output_path)

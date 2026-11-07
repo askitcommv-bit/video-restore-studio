@@ -8,6 +8,7 @@ the controls that apply to the selected engine are shown (RelayVSR needs none of
 from pathlib import Path
 import re
 import time
+import threading
 from typing import Optional, Dict, Any
 from PySide6.QtCore import Qt, Signal, QThread, QTimer
 from PySide6.QtWidgets import (
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 import config
+import video_encoders
 from app.ui.styles import set_role
 from app.ui.widgets import ElidedLabel
 
@@ -281,14 +283,40 @@ class SettingsPanel(QFrame):
         return w
 
     def _build_output_group(self) -> QWidget:
-        w, v = self._group("OUTPUT SIZE")
+        w, v = self._group("OUTPUT")
+        v.addWidget(_label("Size", "faint"))
         self.combo_res = QComboBox()
         self.combo_res.addItems(["1080p (Full HD)", "4K UHD", "8K UHD", "720p (HD)"])
         self.combo_res.currentIndexChanged.connect(self._on_res_changed)
         v.addWidget(self.combo_res)
         self.lbl_res_desc = _label("", "faint", wrap=True)
         v.addWidget(self.lbl_res_desc)
+
+        v.addSpacing(4)
+        v.addWidget(_label("Format", "faint"))
+        self.combo_codec = QComboBox()
+        self.combo_codec.addItem("Auto — best for this PC", "auto")
+        self.combo_codec.addItem("HEVC — about half the size", "hevc")
+        self.combo_codec.addItem("H.264 — plays everywhere", "h264")
+        self.combo_codec.setToolTip("Audio is always AAC. HEVC is encoded on the GPU's video encoder when there is one.")
+        self.combo_codec.currentIndexChanged.connect(self._update_codec_label)
+        v.addWidget(self.combo_codec)
+        self.lbl_codec = _label("Checking video encoders…", "faint", wrap=True)
+        v.addWidget(self.lbl_codec)
+        # Probing encoders runs ffmpeg a few times, so it happens on a plain thread that touches no
+        # Qt objects; the UI polls for the cached result instead of being called back from it
+        threading.Thread(target=video_encoders.best_hevc, daemon=True).start()
+        self._codec_poll = QTimer(self)
+        self._codec_poll.setInterval(250)
+        self._codec_poll.timeout.connect(self._update_codec_label)
+        self._codec_poll.start()
         return w
+
+    def _update_codec_label(self, *_):
+        if not video_encoders.probed():
+            return
+        self._codec_poll.stop()
+        self.lbl_codec.setText(f"Output: {video_encoders.describe(self.combo_codec.currentData())} · AAC audio")
 
     def _build_fixes_group(self) -> QWidget:
         w, v = self._group("FIXES")
@@ -798,6 +826,7 @@ class SettingsPanel(QFrame):
             "positive_prompt": self.txt_pos.toPlainText() or pipeline["positive_prompt"],
             "negative_prompt": self.txt_neg.toPlainText() or pipeline["negative_prompt"],
             "output_size": target_res,
+            "output_codec": self.combo_codec.currentData(),
             "tile_size": self.combo_tile.currentText().split(" ")[0],
             "seed": None if self.spin_seed.value() == -1 else self.spin_seed.value(),
             "deinterlace": self.chk_deint.isChecked(),

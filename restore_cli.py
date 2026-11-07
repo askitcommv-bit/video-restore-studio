@@ -147,7 +147,8 @@ def cmd_restore(args):
         teacache_thresh=teacache_thresh_val,
         reference_image=getattr(args, "reference", None),
         extract_depth=getattr(args, "depth", False),
-        progress_callback=make_cli_progress()
+        progress_callback=make_cli_progress(),
+        output_codec=getattr(args, "codec", "auto"),
     )
     print("\n[SUCCESS] Restoration job processed!")
     print(f"  Status: {res['status']}")
@@ -182,7 +183,8 @@ def cmd_ladder(args):
         seed=args.seed,
         reference_image=getattr(args, "reference", None),
         extract_depth=getattr(args, "depth", False),
-        progress_callback=make_cli_progress()
+        progress_callback=make_cli_progress(),
+        output_codec=getattr(args, "codec", "auto"),
     )
     print("\n[SUCCESS] 2-Stage Ladder Restoration job processed!")
     print(f"  Status: {res['status']}")
@@ -215,7 +217,8 @@ def cmd_refine(args):
         seed=args.seed,
         reference_image=getattr(args, "reference", None),
         extract_depth=getattr(args, "depth", False),
-        progress_callback=make_cli_progress()
+        progress_callback=make_cli_progress(),
+        output_codec=getattr(args, "codec", "auto"),
     )
     print("\n[SUCCESS] Detail Refinement job configured!")
     print(f"  Configured Workflow: {res['workflow_file']}")
@@ -243,7 +246,8 @@ def cmd_sol(args):
         seed=args.seed,
         reference_image=getattr(args, "reference", None),
         extract_depth=getattr(args, "depth", False),
-        progress_callback=make_cli_progress()
+        progress_callback=make_cli_progress(),
+        output_codec=getattr(args, "codec", "auto"),
     )
     print("\n[SUCCESS] NVIDIA 1-Step SoL-Refiner job processed!")
     print(f"  Status: {res['status']}")
@@ -544,6 +548,8 @@ def main():
     p_res.add_argument("--negative", default=None, help="Custom negative prompt override")
     p_res.add_argument("--resolution", default="FullHD", choices=["HD", "FullHD", "4K", "8K"], help="Target output resolution (default: FullHD)")
     p_res.add_argument("--tile", default="FullHD", choices=["qHD", "HD", "FullHD"], help="Sampling tile size (default: FullHD)")
+    p_res.add_argument("--codec", default="auto", choices=["auto", "hevc", "h264"],
+                       help="Final video codec: auto = HEVC on the best encoder found (NVENC/QSV/AMF/x265), else H.264")
     p_res.add_argument("--seed", type=int, default=None, help="RNG seed")
     p_res.add_argument("--guide-strength", type=float, default=None, dest="guide_strength", help="Override LTX guide strength")
     p_res.add_argument("--cfg", type=float, default=None, help="Override CFG scale")
