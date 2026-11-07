@@ -181,7 +181,7 @@ def flatten_workflow(wf_data: dict) -> dict:
     return api_prompt
 
 if __name__ == "__main__":
-    with open("workflows/LTX-2.5_V2V_TiledFusion_Restore.json", "r", encoding="utf-8") as f:
+    with open("dev/workflows/LTX-2.5_V2V_TiledFusion_Restore.json", "r", encoding="utf-8") as f:
         wf = json.load(f)
 
     prompt = flatten_workflow(wf)

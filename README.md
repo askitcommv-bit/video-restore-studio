@@ -68,7 +68,7 @@ python restore_cli.py download
 - **From source**: `python main.py` (or `run.bat`)
 - **Executable**: download `VideoRestoreStudio-win64.zip` from the
   [Releases](https://github.com/askitcommv-bit/video-restore-studio/releases) page and extract it **into the
-  cloned folder**, so `VideoRestoreStudio.exe` sits next to `workflows\` and `third_party\`. The exe uses
+  cloned folder**, so `VideoRestoreStudio.exe` sits next to `third_party\`. The exe uses
   its own folder as the project folder. Build it yourself with `build_exe.bat`.
   (The optional depth-map export needs the source install, since the exe doesn't bundle PyTorch.)
 - **Command line**: `python restore_cli.py --help` (`restore`, `preprocess`, `compare`, `status`, `download`)
@@ -96,7 +96,8 @@ comparison_generator.py side-by-side and split comparison renders
 model_downloader.py     model/LoRA/RelayVSR installers and health checks
 restore_cli.py          command-line interface
 web_ui.py               browser dashboard
-workflows/              ComfyUI workflow templates
+dev/                    debugging scripts against a running ComfyUI, and the original ComfyUI
+                        workflow templates (the app builds its graphs in code; not needed to run it)
 docs/                   prompt guide, VRAM/performance notes
 build_exe.bat           PyInstaller build of the desktop app
 ```

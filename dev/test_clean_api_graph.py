@@ -3,8 +3,10 @@ import shutil
 import urllib.request
 from pathlib import Path
 
+import config
+
 # Copy a test input video into ComfyUI input directory
-comfy_input_dir = Path("C:/ComfyUI_portable/ComfyUI/input")
+comfy_input_dir = config.COMFYUI_DIR / "input"
 test_sample = Path("inputs/sample_archive_540p_prepared.mp4")
 target_sample = comfy_input_dir / "test_restore_input.mp4"
 if test_sample.exists() and not target_sample.exists():

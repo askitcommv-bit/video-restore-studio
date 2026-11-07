@@ -1,6 +1,6 @@
 @echo off
 :: Builds dist\VideoRestoreStudio\ (VideoRestoreStudio.exe + _internal\) with PyInstaller in an
-:: isolated build venv. Copy both into the project folder (next to workflows\ and third_party\)
+:: isolated build venv. Copy both into the project folder (next to third_party\)
 :: or run it from there: the exe treats its own folder as the project folder.
 setlocal
 cd /d "%~dp0"

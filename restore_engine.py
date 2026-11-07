@@ -1775,6 +1775,7 @@ class VideoRestorationPipeline:
                 teacache_thresh=teacache_thresh,
             )
 
+        config.WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
         run_wf_path = config.WORKFLOWS_DIR / f"active_run_{output_prefix}.json"
         with open(run_wf_path, "w", encoding="utf-8") as f:
             json.dump(prompt_graph, f, indent=2)

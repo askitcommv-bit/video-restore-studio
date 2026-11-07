@@ -9,8 +9,9 @@ comparisons/
 resume/
 scratch/
 
-# Per-run ComfyUI workflows written by the engine (the templates are tracked)
+# Per-run ComfyUI workflows written by the engine, and dev script output
 workflows/active_run_*.json
+test_flattened_prompt.json
 
 # Third-party code and model environments (installed by `restore_cli.py download --relayvsr`)
 third_party/
