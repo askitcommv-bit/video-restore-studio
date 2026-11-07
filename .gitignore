@@ -1,0 +1,27 @@
+# Personal state and secrets (config.json holds the Hugging Face token)
+config.json
+queue_state.json
+
+# Media, results and resumable job parts
+inputs/
+outputs/
+comparisons/
+resume/
+scratch/
+
+# Per-run ComfyUI workflows written by the engine (the templates are tracked)
+workflows/active_run_*.json
+
+# Third-party code and model environments (installed by `restore_cli.py download --relayvsr`)
+third_party/
+
+# Build output
+.build/
+dist/
+build/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+.venv/
