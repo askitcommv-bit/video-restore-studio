@@ -10,7 +10,16 @@ A local desktop app for upscaling and restoring old video on a single consumer G
   up to 4K/8K, era presets (1920s B&W, Kodachrome, VHS…), defect detection and prompt synthesis.
 - **Fast upscalers**: Real-ESRGAN x2 and 4x-UltraSharp.
 
-![Video Restore Studio](docs/screenshot.png)
+![The same close-up from a 640×480 TV episode: scaled up normally (left) and upscaled by RelayVSR (right)](docs/before-after-face.jpg)
+
+*A 640×480 TV episode upscaled to 720p. Left: the original scaled up the usual way. Right: RelayVSR. Same frame, same crop.*
+
+![Redwood bark before and after RelayVSR](docs/before-after-bark.jpg)
+
+![Video Restore Studio: split view of the original and the result, with the batch queue below](docs/screenshot.jpg)
+
+RelayVSR generates plausible detail. That works very well for faces, hair, foliage and texture; tiny text it
+can't read may come out as letter-like shapes, so check scenes where small writing matters.
 
 ## What it does well
 
