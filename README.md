@@ -66,11 +66,12 @@ python restore_cli.py download
 ## Run
 
 - **From source**: `python main.py` (or `run.bat`)
-- **Executable**: download `VideoRestoreStudio-win64.zip` from the
-  [Releases](https://github.com/askitcommv-bit/video-restore-studio/releases) page and extract it **into the
+- **Executable**: download `VideoRestoreStudio.exe` (a single file) from the
+  [Releases](https://github.com/askitcommv-bit/video-restore-studio/releases) page and put it **in the
   cloned folder** (or a subfolder of it, such as `dist\` after building). The exe uses the nearest folder
   at or above its own that contains `relayvsr_worker.py` as the project folder, which is where it finds
-  `third_party\RelayVSR` and keeps its settings, queue and outputs. Build it yourself with `build_exe.bat`.
+  `third_party\RelayVSR` and keeps its settings, queue and outputs. It unpacks itself on each start, so
+  the window takes about 3 seconds to appear. Build it yourself with `build_exe.bat`.
   (The optional depth-map export needs the source install, since the exe doesn't bundle PyTorch.)
 - **Command line**: `python restore_cli.py --help` (`restore`, `preprocess`, `compare`, `status`, `download`)
 - **Browser UI**: `python web_ui.py` → http://localhost:7860
