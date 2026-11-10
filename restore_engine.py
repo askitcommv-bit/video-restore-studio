@@ -2160,9 +2160,11 @@ class VideoRestorationPipeline:
             ) if not p.exists()
         ]
         if missing:
+            where = (f"\nThe app looked in {config.PROJECT_DIR}: put VideoRestoreStudio.exe inside the cloned "
+                     "video-restore-studio folder (or a subfolder of it)." if config.FROZEN else "")
             raise FileNotFoundError(
-                "RelayVSR is not installed. Missing:\n  " + "\n  ".join(missing)
-                + "\nRun: python restore_cli.py download --relayvsr"
+                "RelayVSR is not installed. Missing:\n  " + "\n  ".join(missing) + where
+                + "\nRun in the project folder: python restore_cli.py download --relayvsr"
             )
 
         lr_h, out_h = self.relayvsr_geometry(prep_info["width"], prep_info["height"], output_size)

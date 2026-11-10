@@ -29,6 +29,7 @@ from app.ui.video_viewport import VideoPlayerWidget, VIDEO_EXTS
 from app.ui.settings_panel import SettingsPanel
 from app.core.queue_manager import QueueManager, QueueJob
 from app.ui.queue_panel import QueuePanel, choose_batch_output_folder
+from app.ui.widgets import ProgressDialog
 
 
 
@@ -59,6 +60,32 @@ class ComparisonWorker(QThread):
             self.error.emit(str(e))
 
 
+class VideoLoadWorker(QThread):
+    """Reads a video's details and scans it for defects off the UI thread, reporting each step."""
+    step = Signal(str, int, int)  # text, current, total (total 0 = busy)
+    info_ready = Signal(dict)
+    analysis_ready = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, video_path: str):
+        super().__init__()
+        self.video_path = video_path
+
+    def run(self):
+        try:
+            self.step.emit("Reading video details", 0, 0)
+            self.info_ready.emit(video_preprocessor.get_video_info(self.video_path))
+        except Exception as e:
+            self.failed.emit(f"Couldn't read this video: {e}")
+            return
+        try:
+            res = video_preprocessor.analyze_video_defects(
+                self.video_path, progress=lambda cur, tot, text: self.step.emit(text, cur, tot))
+        except Exception as e:
+            res = {"error": str(e)}
+        self.analysis_ready.emit(res)
+
+
 class MainWindow(QMainWindow):
     """Main application window for LTX-2.5 Video Restoration."""
     status_ready = Signal(object, object)  # ComfyUI /system_stats (None = offline), free VRAM GB (None = unknown)
@@ -77,6 +104,8 @@ class MainWindow(QMainWindow):
 
         self.current_raw_video: Optional[str] = None
         self.current_restored_video: Optional[str] = None
+        self._load_workers: set = set()  # a running QThread must not be dropped
+        self.load_dialog = ProgressDialog(self, "Opening video")
 
         self._init_ui()
         self._init_status_timer()
@@ -318,13 +347,37 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Token Saved", "Hugging Face Token saved successfully!")
 
     def _on_video_loaded(self, file_path: str):
+        """Reads the video and scans it on a worker; the dialog shows each step if it takes a moment."""
         self.current_raw_video = file_path
         self.current_restored_video = None
         config.set_last_input_folder(Path(file_path).parent)
-        info = video_preprocessor.get_video_info(file_path)
-        self.settings_panel.set_video_metadata(info)
-        self.player_widget.load_video(file_path, is_restored=False)
+        self.settings_panel.current_video_path = file_path  # a batch queued right after reads settings now
+        self.load_dialog.start(Path(file_path).name)
+
+        worker = VideoLoadWorker(file_path)
+        current = lambda: self.current_raw_video == file_path  # ignore a load superseded by a newer one
+        worker.step.connect(lambda text, cur, tot: current() and self.load_dialog.set_step(text, cur, tot))
+        worker.info_ready.connect(lambda info: current() and self._on_video_info(info))
+        worker.analysis_ready.connect(lambda res: current() and self._on_video_scanned(file_path, res))
+        worker.failed.connect(lambda msg: current() and self._on_video_load_failed(msg))
+        worker.finished.connect(lambda w=worker: self._load_workers.discard(w))
+        self._load_workers.add(worker)
+        worker.start()
+
+    def _on_video_info(self, info: Dict[str, Any]):
+        self.load_dialog.set_step("Opening the player")
+        self.settings_panel.set_video_metadata(info, scan=False)
+        self.player_widget.load_video(info["path"], is_restored=False)
+
+    def _on_video_scanned(self, file_path: str, res: Dict[str, Any]):
+        self.settings_panel.apply_detection(res)  # already known current; its path may differ in slashes
+        self.load_dialog.finish()
         self.status_bar.showMessage(f"Loaded {Path(file_path).name}", 4000)
+
+    def _on_video_load_failed(self, message: str):
+        self.current_raw_video = None
+        self.load_dialog.finish()
+        self.status_bar.showMessage(message, 10000)
 
     def _on_add_to_queue(self, params: Dict[str, Any]):
         """Adds current video and settings as a new job in the batch queue."""

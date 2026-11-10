@@ -10,9 +10,21 @@ import json
 # Base Directories
 import sys
 
-# A frozen build (VideoRestoreStudio.exe) sits in the project folder next to workflows/, third_party/ etc.
 FROZEN = getattr(sys, "frozen", False)
-PROJECT_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
+
+
+def _frozen_project_dir() -> Path:
+    """The project folder for VideoRestoreStudio.exe: the nearest of its own folder and the folders
+    above it that holds relayvsr_worker.py, so the exe also works straight from dist\\VideoRestoreStudio
+    inside the clone. Falls back to the exe's folder."""
+    exe_dir = Path(sys.executable).resolve().parent
+    for d in (exe_dir, *exe_dir.parents[:3]):
+        if (d / "relayvsr_worker.py").is_file():
+            return d
+    return exe_dir
+
+
+PROJECT_DIR = _frozen_project_dir() if FROZEN else Path(__file__).resolve().parent
 CONFIG_JSON_PATH = PROJECT_DIR / "config.json"
 WORKFLOWS_DIR = PROJECT_DIR / "workflows"
 INPUTS_DIR = PROJECT_DIR / "inputs"

@@ -596,7 +596,8 @@ class SettingsPanel(QFrame):
     # -----------------------------------------------------------------
     # Video & range
     # -----------------------------------------------------------------
-    def set_video_metadata(self, meta: Dict[str, Any]):
+    def set_video_metadata(self, meta: Dict[str, Any], scan: bool = True):
+        """scan=False when the caller runs the defect scan itself and hands the result to apply_detection."""
         self.current_video_path = meta["path"]
         self.lbl_file_name.setText(Path(meta["path"]).name)
         self.total_frames = meta.get("total_frames", 0)
@@ -611,7 +612,10 @@ class SettingsPanel(QFrame):
 
         self.btn_start.setEnabled(True)
         self.btn_add_to_queue.setEnabled(True)
-        self.run_auto_detection()
+        if scan:
+            self.run_auto_detection()
+        else:
+            self.lbl_auto_status.setText("Scanning frames…")
 
     def on_in_out_changed(self, in_f: Optional[int], out_f: Optional[int]):
         self.current_in_point = in_f
@@ -665,12 +669,12 @@ class SettingsPanel(QFrame):
             return
         self.lbl_auto_status.setText("Scanning frames…")
         worker = VideoAnalysisWorker(self.current_video_path)
-        worker.analysis_ready.connect(lambda res, path=worker.video_path: self._on_auto_detection_finished(res, path))
+        worker.analysis_ready.connect(lambda res, path=worker.video_path: self.apply_detection(res, path))
         worker.finished.connect(lambda w=worker: self._analysis_workers.discard(w))
         self._analysis_workers.add(worker)
         worker.start()
 
-    def _on_auto_detection_finished(self, res: dict, video_path: Optional[str] = None):
+    def apply_detection(self, res: dict, video_path: Optional[str] = None):
         if video_path is not None and video_path != self.current_video_path:
             return  # a newer video was loaded while this one was being scanned
         if "error" in res or not res:

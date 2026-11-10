@@ -388,7 +388,8 @@ def mux_audio_and_video(
     return output_path
 
 
-def analyze_video_defects(video_path: Path | str, num_sample_frames: int = 15) -> Dict[str, Any]:
+def analyze_video_defects(video_path: Path | str, num_sample_frames: int = 15,
+                          progress: Optional[Callable[[int, int, str], None]] = None) -> Dict[str, Any]:
     """
     Performs fast computer vision and signal analysis on video frames to detect:
     - Interlaced scanlines (via ffmpeg idet)
@@ -441,7 +442,9 @@ def analyze_video_defects(video_path: Path | str, num_sample_frames: int = 15) -
     brightnesses = []
     laplacians = []
 
-    for idx in sample_indices:
+    for n, idx in enumerate(sample_indices):
+        if progress:
+            progress(n, len(sample_indices), "Sampling frames for colour, flicker and noise")
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
         ret, frame = cap.read()
         if not ret or frame is None:
@@ -462,6 +465,8 @@ def analyze_video_defects(video_path: Path | str, num_sample_frames: int = 15) -
     aspect_ratio_str = "4:3" if abs(aspect_ratio - 4/3) < 0.1 else ("16:9" if abs(aspect_ratio - 16/9) < 0.1 else f"{width}:{height}")
 
     # Interlacing detection via ffmpeg idet
+    if progress:
+        progress(len(sample_indices), len(sample_indices), "Checking for interlaced video")
     is_interlaced = False
     try:
         cmd = ['ffmpeg', '-i', str(video_path), '-filter:v', 'idet', '-frames:v', '30', '-an', '-f', 'null', '-']
