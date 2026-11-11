@@ -8,14 +8,17 @@ import time
 import uuid
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field, asdict
 
 from PySide6.QtCore import QObject, Signal, QThread
 
 import config
-import video_preprocessor
-from restore_engine import VideoRestorationPipeline
+import outputs
+import presets
+import user_settings
+from engine import RestoreRequest, VideoRestorationPipeline, relayvsr
+from errors import friendly_message
 
 
 @dataclass
@@ -56,10 +59,10 @@ class QueueJob:
 
 
 class QueueWorker(QThread):
-    """Executes a single QueueJob in a dedicated thread."""
+    """Runs one job's RestoreRequest on its own thread."""
     progress = Signal(int, int, str)
-    finished = Signal(dict)
-    error = Signal(str)
+    succeeded = Signal(dict)
+    failed = Signal(object)  # the exception, so the app can react to its type
 
     def __init__(self, pipeline: VideoRestorationPipeline, params: Dict[str, Any]):
         super().__init__()
@@ -68,49 +71,22 @@ class QueueWorker(QThread):
         self._is_cancelled = False
 
     def run(self):
-        try:
-            def on_progress(curr, tot, msg):
-                if not self._is_cancelled:
-                    self.progress.emit(curr, tot, msg)
-
-            res = self.pipeline.restore_footage(
-                input_video_path=self.params["input_path"],
-                output_dir=self.params.get("output_dir"),
-                output_file=self.params.get("output_file"),
-                max_frames=self.params.get("max_frames"),
-                start_frame=self.params.get("start_frame"),
-                end_frame=self.params.get("end_frame"),
-                engine_type=self.params.get("engine_type", "diffusion"),
-                superres_model=self.params.get("superres_model", "RealESRGAN_x2plus.pth"),
-                mode=self.params.get("mode", "restore"),
-                prompt_preset=self.params.get("preset", config.DEFAULT_PRESET),
-                custom_positive_prompt=self.params.get("positive_prompt"),
-                custom_negative_prompt=self.params.get("negative_prompt"),
-                output_size=self.params.get("output_size", "FullHD"),
-                tile_size=self.params.get("tile_size", "FullHD"),
-                seed=self.params.get("seed"),
-                guide_strength=self.params.get("guide_strength", 0.72),
-                cfg=self.params.get("cfg", 2.5),
-                sol_sigma=self.params.get("sol_sigma", 0.50),
-                enable_teacache=self.params.get("enable_teacache"),
-                teacache_thresh=self.params.get("teacache_thresh", 0.06),
-                reference_image=self.params.get("reference_image"),
-                extract_depth=self.params.get("extract_depth", False),
-                clean_noise=self.params.get("clean_noise"),
-                stabilize_jitter=self.params.get("stabilize_jitter"),
-                progress_callback=on_progress,
-                output_codec=self.params.get("output_codec", "auto"),
-            )
+        def on_progress(curr, tot, msg):
             if not self._is_cancelled:
-                self.finished.emit(res)
+                self.progress.emit(curr, tot, msg)
+
+        try:
+            res = self.pipeline.run(RestoreRequest.from_params(self.params), on_progress)
+            if not self._is_cancelled:
+                self.succeeded.emit(res)
         except Exception as e:
             if not self._is_cancelled:
-                self.error.emit(str(e))
+                self.failed.emit(e)
 
     def cancel(self):
         self._is_cancelled = True
         # Out-of-process GPU workers (RelayVSR) are killed directly
-        self.pipeline.terminate_active_worker()
+        relayvsr.terminate_worker()
 
 
 class QueueManager(QObject):
@@ -122,7 +98,7 @@ class QueueManager(QObject):
     job_removed = Signal(str)           # job_id
     job_started = Signal(object)        # QueueJob
     job_completed = Signal(object, dict)# QueueJob, result
-    job_failed = Signal(object, str)    # QueueJob, error_msg
+    job_failed = Signal(object, object) # QueueJob, exception
     queue_status_changed = Signal(bool, int, int) # is_running, pending_count, completed_count
     queue_cleared = Signal()
 
@@ -136,6 +112,7 @@ class QueueManager(QObject):
         self.is_paused: bool = False
         self.current_job: Optional[QueueJob] = None
         self._worker: Optional[QueueWorker] = None
+        self._threads: set = set()  # a QThread must outlive its run(); dropped once it has finished
 
         self._load_queue_state()
 
@@ -144,7 +121,7 @@ class QueueManager(QObject):
         input_path: str,
         output_path: str,
         params: Dict[str, Any],
-        preset_id: str = config.DEFAULT_PRESET,
+        preset_id: str = presets.DEFAULT_PRESET,
         preset_name: str = "Master Archival Redraw"
     ) -> QueueJob:
         """Adds a single restoration job to the queue."""
@@ -179,14 +156,14 @@ class QueueManager(QObject):
         self,
         file_paths: List[str],
         base_params: Dict[str, Any],
-        preset_id: str = config.DEFAULT_PRESET,
+        preset_id: str = presets.DEFAULT_PRESET,
         preset_name: str = "Master Archival Redraw",
         output_dir: Optional[Path] = None,
     ) -> List[QueueJob]:
         """Adds multiple files to the queue using base settings with automatic unique filenames
         in `output_dir` (default: the remembered output folder)."""
         added = []
-        out_folder = Path(output_dir) if output_dir else config.get_last_output_folder()
+        out_folder = Path(output_dir) if output_dir else user_settings.get_last_output_folder()
         out_folder.mkdir(parents=True, exist_ok=True)
         engine_type = base_params.get("engine_type", "diffusion")
         mode = base_params.get("mode", "restore")
@@ -204,7 +181,7 @@ class QueueManager(QObject):
             if not fp.exists():
                 continue
 
-            unique_out = config.get_unique_output_path(
+            unique_out = outputs.unique_output_path(
                 output_dir=out_folder,
                 base_stem=f"{fp.stem}_{mode_tag}",
                 suffix=".mp4"
@@ -294,7 +271,7 @@ class QueueManager(QObject):
         self.is_running = False
         self.is_paused = False
         self.stop_current_job()
-        self.pipeline.release_relayvsr_worker()
+        relayvsr.release_worker()
         self._emit_status()
 
     def stop_current_job(self):
@@ -330,7 +307,7 @@ class QueueManager(QObject):
         """Finds next pending job and executes it."""
         if not self.is_running or self.is_paused:
             # Idle (stopped/paused): a resident RelayVSR worker would just sit on ~9.4 GB of VRAM
-            self.pipeline.release_relayvsr_worker()
+            relayvsr.release_worker()
             return
 
         next_job = None
@@ -343,7 +320,7 @@ class QueueManager(QObject):
             # Queue complete!
             self.is_running = False
             self.current_job = None
-            self.pipeline.release_relayvsr_worker()
+            relayvsr.release_worker()
             self._emit_status()
             self._save_queue_state()
             return
@@ -358,11 +335,14 @@ class QueueManager(QObject):
         self._emit_status()
         self._save_queue_state()
 
-        self._worker = QueueWorker(self.pipeline, self.current_job.params)
-        self._worker.progress.connect(self._on_worker_progress)
-        self._worker.finished.connect(self._on_worker_finished)
-        self._worker.error.connect(self._on_worker_error)
-        self._worker.start()
+        worker = QueueWorker(self.pipeline, self.current_job.params)
+        worker.progress.connect(self._on_worker_progress)
+        worker.succeeded.connect(self._on_worker_finished)
+        worker.failed.connect(self._on_worker_error)
+        worker.finished.connect(lambda w=worker: self._threads.discard(w))
+        self._threads.add(worker)
+        self._worker = worker
+        worker.start()
 
     def _on_worker_progress(self, curr: int, tot: int, msg: str):
         if not self.current_job:
@@ -397,16 +377,17 @@ class QueueManager(QObject):
         # Trigger next job
         self._process_next()
 
-    def _on_worker_error(self, err_msg: str):
+    def _on_worker_error(self, error: Exception):
         if not self.current_job:
             return
         job = self.current_job
+        err_msg = friendly_message(error)
         job.status = "failed"
         job.error_message = err_msg
         job.current_step_text = f"Error: {err_msg}"
         job.completed_at = time.time()
 
-        self.job_failed.emit(job, err_msg)
+        self.job_failed.emit(job, error)
         self.job_updated.emit(job)
         self.current_job = None
         self._worker = None

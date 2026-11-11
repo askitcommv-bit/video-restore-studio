@@ -3,13 +3,15 @@ import json
 import time
 from pathlib import Path
 import config
-from restore_engine import build_sol_refiner_api_prompt, ComfyUIClient
+import presets
+from engine.comfy.client import ComfyUIClient
+from engine.comfy.graphs import build_sol_refiner_api_prompt
 
 def test_sol_sigma(sigma: float, output_prefix: str):
     client = ComfyUIClient()
     # A prepared clip already in ComfyUI's input folder
     video_filename = os.environ.get("TEST_VIDEO", "sample_archive_540p_prepared.mp4")
-    preset = config.PROMPT_PRESETS["archival_general"]
+    preset = presets.PROMPT_PRESETS["archival_general"]
     
     prompt_graph = build_sol_refiner_api_prompt(
         video_filename=video_filename,

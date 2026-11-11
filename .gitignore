@@ -26,3 +26,7 @@ build/
 __pycache__/
 *.pyc
 .venv/
+
+# Downloaded by the in-app setup (FFmpeg, uv, Python) and RelayVSR weights without ComfyUI
+tools/
+models/

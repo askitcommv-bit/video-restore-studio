@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, Callable
 import config
 
+import processes
 _NVENC_AVAILABLE: Optional[bool] = None
 
 def check_nvenc_available() -> bool:
@@ -29,7 +30,7 @@ def check_nvenc_available() -> bool:
             "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=0.1:size=64x64:rate=10",
             "-c:v", "h264_nvenc", "-f", "null", "-"
         ]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        res = processes.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         _NVENC_AVAILABLE = (res.returncode == 0)
     except Exception:
         _NVENC_AVAILABLE = False
@@ -62,7 +63,7 @@ def get_video_info(video_path: Path | str) -> Dict[str, Any]:
         str(video_path)
     ]
     
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    result = processes.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
     probe = json.loads(result.stdout)
     
     stream = probe["streams"][0] if probe.get("streams") else {}
@@ -102,7 +103,7 @@ def get_video_info(video_path: Path | str) -> Dict[str, Any]:
         "-of", "json",
         str(video_path)
     ]
-    audio_res = subprocess.run(audio_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    audio_res = processes.run(audio_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     audio_probe = json.loads(audio_res.stdout) if audio_res.returncode == 0 else {}
     has_audio = len(audio_probe.get("streams", [])) > 0
     
@@ -286,7 +287,7 @@ def preprocess_video(
         str(output_path)
     ]
     
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    processes.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
     
     new_info = get_video_info(output_path)
     new_info["start_frame"] = start_f
@@ -322,7 +323,7 @@ def extract_audio(video_path: Path | str, audio_output_path: Optional[Path | str
         str(target_m4a)
     ]
     
-    res = subprocess.run(cmd_aac, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    res = processes.run(cmd_aac, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if res.returncode == 0 and target_m4a.exists() and target_m4a.stat().st_size > 0:
         return target_m4a
         
@@ -342,7 +343,7 @@ def extract_audio(video_path: Path | str, audio_output_path: Optional[Path | str
         "-c:a", "pcm_s16le",
         str(target_wav)
     ]
-    res_wav = subprocess.run(cmd_wav, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    res_wav = processes.run(cmd_wav, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if res_wav.returncode == 0 and target_wav.exists() and target_wav.stat().st_size > 0:
         return target_wav
 
@@ -384,7 +385,7 @@ def mux_audio_and_video(
         str(output_path)
     ]
     
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    processes.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
     return output_path
 
 
@@ -470,7 +471,7 @@ def analyze_video_defects(video_path: Path | str, num_sample_frames: int = 15,
     is_interlaced = False
     try:
         cmd = ['ffmpeg', '-i', str(video_path), '-filter:v', 'idet', '-frames:v', '30', '-an', '-f', 'null', '-']
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+        res = processes.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
         matches = re.findall(r'Multi frame detection:\s+TFF:\s+(\d+)\s+BFF:\s+(\d+)\s+Progressive:\s+(\d+)', res.stderr)
         if matches:
             tff, bff, prog = [int(x) for x in matches[-1]]
@@ -588,13 +589,12 @@ def extract_depth_sequence(
             "--batch-size", "4"
         ]
 
-        proc = subprocess.Popen(
+        proc = processes.popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1,
-            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+            bufsize=1
         )
 
         total_frames = 1

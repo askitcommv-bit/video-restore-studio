@@ -8,7 +8,6 @@ Provides:
 - Synchronized Before/After Comparison Video Player
 """
 
-import sys
 import os
 import json
 import time
@@ -20,23 +19,13 @@ from typing import Dict, Any, List, Optional
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import urllib.parse
 
-if sys.platform == "win32":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
-
-# Add project root to sys.path
-PROJECT_ROOT = Path(__file__).resolve().parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 import config
-import model_downloader
+import presets
+import bootstrap
+import comfy_models
 import video_preprocessor
-import comparison_generator
-from restore_engine import VideoRestorationPipeline, ComfyUIClient
+from engine import ComfyUIClient, RestoreRequest, VideoRestorationPipeline, relayvsr
+from errors import friendly_message
 
 PORT = int(os.environ.get("PORT", 7860))
 
@@ -68,8 +57,8 @@ class JobQueueManager:
                 raise FileNotFoundError(f"Input video file not found: {input_path}")
 
             job_id = f"job_{int(time.time()*1000)}_{str(uuid.uuid4())[:6]}"
-            preset_key = payload.get("preset", config.DEFAULT_PRESET)
-            preset_info = config.RESTORATION_PRESETS.get(preset_key, {})
+            preset_key = payload.get("preset", presets.DEFAULT_PRESET)
+            preset_info = presets.RESTORATION_PRESETS.get(preset_key, {})
 
             # In/Out Frame Resolution & Safety Clamping
             raw_meta = video_preprocessor.get_video_info(Path(input_path))
@@ -137,7 +126,7 @@ class JobQueueManager:
                 # Signal ComfyUI to interrupt
                 try:
                     ComfyUIClient().interrupt()
-                    VideoRestorationPipeline.terminate_active_worker()
+                    relayvsr.terminate_worker()
                 except Exception:
                     pass
                 return True
@@ -171,7 +160,7 @@ class JobQueueManager:
                 self._execute_job(job_to_run)
             else:
                 # Queue drained: free the resident RelayVSR worker's VRAM (no-op when none is loaded)
-                VideoRestorationPipeline.release_relayvsr_worker()
+                relayvsr.release_worker()
                 time.sleep(1.0)
 
     def _execute_job(self, job: Dict[str, Any]):
@@ -184,7 +173,7 @@ class JobQueueManager:
                     self.active_job["step"] = desc
 
         try:
-            res = pipeline.restore_footage(
+            res = pipeline.run(RestoreRequest(
                 input_video_path=job["input_path"],
                 engine_type=job["engine_type"],
                 mode=job["mode"],
@@ -200,8 +189,7 @@ class JobQueueManager:
                 superres_model=job.get("superres_model", "RealESRGAN_x2plus.pth"),
                 reference_image=job.get("reference_image"),
                 extract_depth=job.get("extract_depth", False),
-                progress_callback=on_progress
-            )
+            ), on_progress)
 
             with self.lock:
                 job["status"] = "completed"
@@ -214,26 +202,10 @@ class JobQueueManager:
                 self.active_job = None
 
         except Exception as e:
-            err_msg = str(e)
+            friendly = friendly_message(e)
             with self.lock:
                 job["status"] = "failed"
                 job["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-
-                # Parse common failure reasons into actionable human advice
-                if "ArrayMemoryError" in err_msg or "Unable to allocate" in err_msg:
-                    friendly = (
-                        "System RAM Out of Memory: The video had too many frames for full diffusion redraw. "
-                        "Fix: Use the In/Out marks selector to pick a shot (17 to 97 frames), or switch preset to 'Instant Super-Res (Real-ESRGAN)' to upscale the full episode."
-                    )
-                elif "OutOfMemoryError" in err_msg or "CUDA out of memory" in err_msg:
-                    friendly = (
-                        "GPU VRAM Out of Memory: Try lowering Tiling Stencil to 'HD' or 'qHD' in pipeline settings."
-                    )
-                elif "offline" in err_msg.lower() or "connection" in err_msg.lower():
-                    friendly = "ComfyUI Server is offline. Ensure ComfyUI background process is active on Port 8188."
-                else:
-                    friendly = err_msg
-
                 job["error"] = friendly
                 job["step"] = f"Failed: {friendly}"
                 self.history.insert(0, job)
@@ -255,7 +227,7 @@ class RestorationHandler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
-            self.wfile.write(HTML_CONTENT.replace("__DEFAULT_PRESET__", config.DEFAULT_PRESET).encode("utf-8"))
+            self.wfile.write(HTML_CONTENT.replace("__DEFAULT_PRESET__", presets.DEFAULT_PRESET).encode("utf-8"))
             return
 
         elif path == "/api/status":
@@ -263,7 +235,7 @@ class RestorationHandler(SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/presets":
-            self.send_json_response(config.RESTORATION_PRESETS)
+            self.send_json_response(presets.RESTORATION_PRESETS)
             return
 
         elif path == "/api/inputs":
@@ -435,7 +407,7 @@ class RestorationHandler(SimpleHTTPRequestHandler):
                 stats = client.get_system_stats()
             except Exception:
                 pass
-        models = model_downloader.get_model_status()
+        models = {key: {"installed": comfy_models.installed(key)} for key in comfy_models.MODELS}
         q_state = queue_manager.get_state()
         return {
             "server_online": online,
@@ -1156,6 +1128,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 """
 
 def run_server():
+    bootstrap.init()
     server_address = ("", PORT)
     httpd = HTTPServer(server_address, RestorationHandler)
     print(f"\n=======================================================")

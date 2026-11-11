@@ -42,8 +42,9 @@ can't read may come out as letter-like shapes, so check scenes where small writi
 
 ## Requirements
 
-- Windows 10/11, NVIDIA GPU (16 GB recommended), recent driver, `ffmpeg`/`ffprobe` on `PATH`
-- Python 3.10+ for running from source, and [uv](https://docs.astral.sh/uv/) for the RelayVSR environment
+- Windows 10/11, NVIDIA GPU (16 GB recommended) with a recent driver
+- About 20 GB of free disk space for the RelayVSR engine and models
+- FFmpeg, Python and uv are downloaded by the setup when missing; Python 3.10+ only to run from source
 - ComfyUI (only for the LTX-2.5 and SoL engines), default `C:\ComfyUI_portable` —
   override with the `COMFYUI_ROOT` / `COMFYUI_DIR` environment variables
 
@@ -56,22 +57,28 @@ cd video-restore-studio
 # Desktop app dependencies
 pip install -r requirements-app.txt
 
-# RelayVSR: clones the upstream repo into third_party/, creates its own CUDA venv, downloads weights
+# RelayVSR: same downloads as the app's setup (FFmpeg if missing, the RelayVSR code at a tested
+# commit, its own Python 3.13 + CUDA environment, and the ~10 GB of weights). Needs neither git nor uv.
 python restore_cli.py download --relayvsr
 
-# Optional: LTX-2.5 models for ComfyUI (~40 GB; gated on Hugging Face, set a token in the app's menu)
+# Optional, for the ComfyUI engines (also under ☰ → Set up downloads… in the app):
+# LTX-2.5 models (~40 GB; gated on Hugging Face: accept the license, then save a Read token)
+python restore_cli.py token hf_xxx
 python restore_cli.py download
+# NVIDIA SoL-Refiner models (~23 GB)
+python restore_cli.py download --sol
 ```
 
 ## Run
 
 - **From source**: `python main.py` (or `run.bat`)
-- **Executable**: download `VideoRestoreStudio.exe` (a single file) from the
-  [Releases](https://github.com/askitcommv-bit/video-restore-studio/releases) page and put it **in the
-  cloned folder** (or a subfolder of it, such as `dist\` after building). The exe uses the nearest folder
-  at or above its own that contains `relayvsr_worker.py` as the project folder, which is where it finds
-  `third_party\RelayVSR` and keeps its settings, queue and outputs. It unpacks itself on each start, so
-  the window takes about 3 seconds to appear. Build it yourself with `build_exe.bat`.
+- **Executable**: download `VideoRestoreStudio-<version>.exe` (a single file) from the
+  [Releases](https://github.com/askitcommv-bit/video-restore-studio/releases) page and run it from
+  anywhere. On first start it offers to download what's missing (FFmpeg, the RelayVSR engine and models,
+  about 14 GB once) into `%LOCALAPPDATA%\VideoRestoreStudio`, which is also where it keeps settings and
+  the queue; **☰ → Set up downloads…** reopens it. Inside a clone (or a subfolder such as `dist\`) the exe
+  uses the clone instead. It unpacks itself on each start, so the window takes about 3 seconds to appear.
+  Build it yourself with `build_exe.bat`.
   (The optional depth-map export needs the source install, since the exe doesn't bundle PyTorch.)
 - **Command line**: `python restore_cli.py --help` (`restore`, `preprocess`, `compare`, `status`, `download`)
 - **Browser UI**: `python web_ui.py` → http://localhost:7860
@@ -88,20 +95,50 @@ python restore_cli.py download
 ## Project layout
 
 ```
-main.py                 desktop app entry point
-app/ui/                 PySide6 UI (sidebar, player, queue, theme)
-app/core/               queue manager (persistent, resumable)
-restore_engine.py       pipeline orchestration: preprocessing, engines, muxing, comparisons
-relayvsr_worker.py      out-of-process RelayVSR CUDA worker (resident, segment output, VRAM fitting)
-video_preprocessor.py   ffprobe/ffmpeg: CFR canvas, deinterlace, trims, audio, defect detection
-comparison_generator.py side-by-side and split comparison renders
-model_downloader.py     model/LoRA/RelayVSR installers and health checks
-restore_cli.py          command-line interface
-web_ui.py               browser dashboard
-dev/                    debugging scripts against a running ComfyUI, and the original ComfyUI
-                        workflow templates (the app builds its graphs in code; not needed to run it)
-docs/                   prompt guide, VRAM/performance notes
-build_exe.bat           PyInstaller build of the desktop app
+Entry points
+  main.py                 desktop app (also VideoRestoreStudio.exe)
+  restore_cli.py          command line: restore, batch, status, download, token, compare
+  web_ui.py               browser dashboard
+  bootstrap.py            start-up shared by all three (folders, PATH for downloaded tools)
+
+Engine (engine/)
+  request.py              RestoreRequest: one job's settings, built by every front end
+  pipeline.py             orchestration: output file, chunking, preparing, hand-off to an engine
+  relayvsr.py             RelayVSR: resident worker, resumable segments, slowdown recovery
+  comfy/graphs.py         ComfyUI prompt graphs (super-resolution, SoL-Refiner, LTX-2.5)
+  comfy/client.py         ComfyUI REST/WebSocket client
+  comfy/job.py            one ComfyUI-engine job: graph, run, result
+  chunked.py              long ranges on ComfyUI engines: chunk, render, cross-fade, join
+  output.py               final delivery: audio, HEVC encode, comparisons
+  requirements.py         what each engine needs installed
+relayvsr_worker.py        the RelayVSR CUDA worker, run in RelayVSR's own Python environment
+
+Setup and models
+  setup_manager.py        in-app setup: FFmpeg, RelayVSR engine and models, optional ComfyUI packs
+  comfy_models.py         the ComfyUI engines' model files, status, downloads, Hugging Face token
+  downloads.py            resumable downloads with progress and cancellation
+  relayvsr_requirements.txt  pinned packages of the tested RelayVSR environment
+
+Shared
+  config.py               folders, model file names, repositories, constants (no side effects)
+  presets.py              restoration presets, defect ticks -> LTX pipeline
+  user_settings.py        settings saved in config.json
+  outputs.py              output file naming
+  errors.py               typed errors and their one-line explanations
+  processes.py            starting helper programs without console windows
+  gpu.py                  NVIDIA GPU name and free memory
+  video_preprocessor.py   ffprobe/ffmpeg: CFR canvas, deinterlace, trims, audio, defect detection
+  video_encoders.py       picks the best HEVC encoder the PC has
+  comparison_generator.py side-by-side and split comparison renders
+
+Desktop app (app/)
+  core/                   queue, video loader, job submission checks, system status (no widgets)
+  ui/                     main window, header, sidebar, player, queue, setup dialog, theme
+
+dev/                      debugging scripts against a running ComfyUI, and the original ComfyUI
+                          workflow templates (the app builds its graphs in code; not needed to run it)
+docs/                     prompt guide, VRAM/performance notes
+build_exe.bat             PyInstaller build of the desktop app
 ```
 
 ## LTX-2.5 model reference

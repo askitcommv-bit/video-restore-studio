@@ -2,7 +2,8 @@
 Command Line Interface for LTX-2.5 Video Restoration Suite.
 Usage:
   python restore_cli.py status
-  python restore_cli.py download [--precision int8|bf16] [--loras-only] [--relayvsr]
+  python restore_cli.py download [--bf16] [--loras-only] [--sol] [--relayvsr] [--token hf_...]
+  python restore_cli.py token [hf_...]
   python restore_cli.py preprocess --input "clip.mp4"
   python restore_cli.py restore --input "clip.mp4" [--preset archival_general] [--resolution 4K]
   python restore_cli.py refine --input "clip.mp4" [--resolution 4K]
@@ -10,28 +11,23 @@ Usage:
   python restore_cli.py presets
 """
 
-import sys
-import time
-import glob
 import argparse
+import dataclasses
+import glob
+import time
 from pathlib import Path
 
-# Configure UTF-8 console output for Windows terminals
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-# Add project root to sys.path
-PROJECT_ROOT = Path(__file__).resolve().parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-import config
-import model_downloader
-import video_preprocessor
+import bootstrap
+import comfy_models
 import comparison_generator
-from restore_engine import VideoRestorationPipeline, ComfyUIClient
+import config
+import outputs
+import presets
+import setup_manager
+import user_settings
+import video_preprocessor
+from engine import ComfyUIClient, RestoreRequest, VideoRestorationPipeline
+from errors import DownloadForbidden
 
 
 def cmd_status(args):
@@ -54,18 +50,60 @@ def cmd_status(args):
         print(f" -> Launch ComfyUI via: {config.COMFYUI_ROOT / 'run_nvidia_gpu.bat'}")
 
     print()
-    model_downloader.print_status_table()
+    print_model_status()
+
+
+def print_model_status():
+    """Installed vs missing: what RelayVSR needs, and the ComfyUI engines' models."""
+    print("=" * 80)
+    print(" MODEL STATUS")
+    print("=" * 80)
+    for c in setup_manager.components():
+        if not c.optional:
+            print(f"{c.name:<28} | {'[INSTALLED]' if c.ready else '[MISSING]':<12} | {c.download_gb:6.2f} GB")
+    print("-" * 80)
+    missing_gb = 0.0
+    for key, m in comfy_models.MODELS.items():
+        path = comfy_models.local_path(key)
+        if path is None:
+            missing_gb += m.size_gb
+        print(f"{key:<28} | {'[INSTALLED]' if path else '[MISSING]':<12} | {m.size_gb:6.2f} GB | {(path or m.folder / m.filename).name}")
+    print("-" * 80)
+    print(" ComfyUI models: all installed." if not missing_gb else f" ComfyUI models still to download: ~{missing_gb:.2f} GB")
+    tok = comfy_models.get_hf_token()
+    print(f" Hugging Face token: {'set' if tok else 'not set (needed for the gated Lightricks/LTX-2.5 models)'}")
+    print("=" * 80)
 
 
 def cmd_download(args):
-    """Downloads required model weights."""
+    """Downloads what an engine needs: RelayVSR (the in-app setup's steps) or the ComfyUI models."""
+    if args.token:
+        comfy_models.set_hf_token(args.token)
     if args.relayvsr:
-        print("\nInstalling RelayVSR (code + isolated CUDA venv + ~10.2 GB weights)...")
-        model_downloader.install_relayvsr()
+        print("\nInstalling RelayVSR (FFmpeg if missing, code, isolated CUDA venv, ~10.2 GB weights)...")
+        done = setup_manager.install(setup_manager.print_progress)
+        print(f"\n[RelayVSR] Installed: {', '.join(done) or 'nothing (already set up)'}. "
+              f"Weights: {config.RELAYVSR_WEIGHTS_DIR}")
         return
-    prec = "int8" if not args.bf16 else "bf16"
-    print(f"\nStarting model download (Precision: {prec.upper()})...")
-    model_downloader.download_all_models(precision=prec, only_loras=args.loras_only)
+    keys = comfy_models.SOL_PACK if args.sol else comfy_models.LORA_PACK if args.loras_only else comfy_models.LTX_PACK
+    prec = "bf16" if args.bf16 else "int8"
+    print(f"\nDownloading {len(comfy_models.missing(keys))} missing model(s) (precision: {prec.upper()})...")
+    try:
+        done = comfy_models.download_many(keys, setup_manager.print_progress, precision=prec)
+    except DownloadForbidden as e:
+        print(f"\n[!] {e}")
+        return
+    print(f"\n[DONE] Downloaded: {', '.join(done) or 'nothing (already installed)'}")
+
+
+def cmd_token(args):
+    """Saves the Hugging Face access token the gated LTX-2.5 models need."""
+    token = args.token or input("Enter your Hugging Face token (hf_...): ").strip()
+    if token:
+        comfy_models.set_hf_token(token)
+        print("[OK] Hugging Face token saved.")
+    else:
+        print("[!] Cancelled.")
 
 
 def cmd_preprocess(args):
@@ -98,8 +136,8 @@ def make_cli_progress():
 
 def cmd_restore(args):
     """Executes archival footage restoration pipeline with 1-click preset auto-configuration."""
-    preset_key = getattr(args, "preset", config.DEFAULT_PRESET) or config.DEFAULT_PRESET
-    p = config.get_preset(preset_key)
+    preset_key = getattr(args, "preset", presets.DEFAULT_PRESET) or presets.DEFAULT_PRESET
+    p = presets.get_preset(preset_key)
 
     # Auto-resolve engine, mode, resolution, strengths unless explicitly overridden by CLI flags
     engine_type = getattr(args, "engine", None) or p.get("engine_type", "diffusion")
@@ -124,7 +162,7 @@ def cmd_restore(args):
     teacache_thresh_val = getattr(args, "teacache_thresh", None) or p.get("teacache_thresh", 0.06)
 
     pipeline = VideoRestorationPipeline()
-    res = pipeline.restore_footage(
+    res = pipeline.run(RestoreRequest(
         input_video_path=args.input,
         output_dir=getattr(args, "output", None),
         output_file=getattr(args, "output_file", None),
@@ -147,9 +185,8 @@ def cmd_restore(args):
         teacache_thresh=teacache_thresh_val,
         reference_image=getattr(args, "reference", None),
         extract_depth=getattr(args, "depth", False),
-        progress_callback=make_cli_progress(),
         output_codec=getattr(args, "codec", "auto"),
-    )
+    ), make_cli_progress())
     print("\n[SUCCESS] Restoration job processed!")
     print(f"  Status: {res['status']}")
     print(f"  Output Video: {res.get('final_output_path')}")
@@ -166,7 +203,7 @@ def cmd_restore(args):
 def cmd_ladder(args):
     """Executes 2-Stage Native Ladder restoration pipeline (Clean + 2x Spatial Upscale + 4K Refine)."""
     pipeline = VideoRestorationPipeline()
-    res = pipeline.restore_footage(
+    res = pipeline.run(RestoreRequest(
         input_video_path=args.input,
         output_dir=getattr(args, "output", None),
         output_file=getattr(args, "output_file", None),
@@ -183,9 +220,8 @@ def cmd_ladder(args):
         seed=args.seed,
         reference_image=getattr(args, "reference", None),
         extract_depth=getattr(args, "depth", False),
-        progress_callback=make_cli_progress(),
         output_codec=getattr(args, "codec", "auto"),
-    )
+    ), make_cli_progress())
     print("\n[SUCCESS] 2-Stage Ladder Restoration job processed!")
     print(f"  Status: {res['status']}")
     print(f"  Output Video: {res.get('final_output_path')}")
@@ -200,7 +236,7 @@ def cmd_ladder(args):
 def cmd_refine(args):
     """Executes detail refinement pipeline."""
     pipeline = VideoRestorationPipeline()
-    res = pipeline.restore_footage(
+    res = pipeline.run(RestoreRequest(
         input_video_path=args.input,
         output_dir=getattr(args, "output", None),
         output_file=getattr(args, "output_file", None),
@@ -217,9 +253,8 @@ def cmd_refine(args):
         seed=args.seed,
         reference_image=getattr(args, "reference", None),
         extract_depth=getattr(args, "depth", False),
-        progress_callback=make_cli_progress(),
         output_codec=getattr(args, "codec", "auto"),
-    )
+    ), make_cli_progress())
     print("\n[SUCCESS] Detail Refinement job configured!")
     print(f"  Configured Workflow: {res['workflow_file']}")
     if res.get("reference_image"):
@@ -231,7 +266,7 @@ def cmd_refine(args):
 def cmd_sol(args):
     """Executes NVIDIA 1-Step SoL-Refiner restoration pipeline (~10s)."""
     pipeline = VideoRestorationPipeline()
-    res = pipeline.restore_footage(
+    res = pipeline.run(RestoreRequest(
         input_video_path=args.input,
         output_dir=getattr(args, "output", None),
         output_file=getattr(args, "output_file", None),
@@ -246,9 +281,8 @@ def cmd_sol(args):
         seed=args.seed,
         reference_image=getattr(args, "reference", None),
         extract_depth=getattr(args, "depth", False),
-        progress_callback=make_cli_progress(),
         output_codec=getattr(args, "codec", "auto"),
-    )
+    ), make_cli_progress())
     print("\n[SUCCESS] NVIDIA 1-Step SoL-Refiner job processed!")
     print(f"  Status: {res['status']}")
     print(f"  Output Video: {res.get('final_output_path')}")
@@ -286,7 +320,7 @@ def cmd_presets(args):
     print("=" * 85)
     print(" LTX-2.5 SIMPLIFIED 1-CLICK RESTORATION PRESETS")
     print("=" * 85)
-    for key, p in config.RESTORATION_PRESETS.items():
+    for key, p in presets.RESTORATION_PRESETS.items():
         print(f"\nPreset ID: [{key}]")
         print(f"  Name:        {p['name']}")
         print(f"  Engine:      {p['engine_type'].upper()} ({p.get('mode', 'restore')})")
@@ -330,33 +364,9 @@ def cmd_batch(args):
             qm._save_queue_state()
 
             try:
-                res = pipeline.restore_footage(
-                    input_video_path=job.input_path,
-                    output_file=job.output_path,
-                    output_dir=job.params.get("output_dir"),
-                    max_frames=job.params.get("max_frames"),
-                    start_frame=job.params.get("start_frame"),
-                    end_frame=job.params.get("end_frame"),
-                    mode=job.mode,
-                    engine_type=job.engine_type,
-                    superres_model=job.params.get("superres_model", "RealESRGAN_x2plus.pth"),
-                    prompt_preset=job.preset_id,
-                    custom_positive_prompt=job.params.get("positive_prompt"),
-                    custom_negative_prompt=job.params.get("negative_prompt"),
-                    output_size=job.params.get("output_size", "FullHD"),
-                    tile_size=job.params.get("tile_size", "FullHD"),
-                    guide_strength=job.params.get("guide_strength", 0.72),
-                    cfg=job.params.get("cfg", 2.5),
-                    sol_sigma=job.params.get("sol_sigma", 0.50),
-                    seed=job.params.get("seed"),
-                    enable_teacache=job.params.get("enable_teacache"),
-                    teacache_thresh=job.params.get("teacache_thresh", 0.06),
-                    reference_image=job.params.get("reference_image"),
-                    extract_depth=job.params.get("extract_depth", False),
-                    clean_noise=job.params.get("clean_noise"),
-                    stabilize_jitter=job.params.get("stabilize_jitter"),
-                    progress_callback=make_cli_progress()
-                )
+                request = dataclasses.replace(RestoreRequest.from_params(job.params), output_file=job.output_path,
+                                              prompt_preset=job.preset_id, mode=job.mode, engine_type=job.engine_type)
+                res = pipeline.run(request, make_cli_progress())
                 job.status = "completed"
                 job.progress = 100
                 job.completed_at = time.time()
@@ -396,8 +406,8 @@ def cmd_batch(args):
     # Remove duplicates preserving order
     unique_files = list(dict.fromkeys(expanded_files))
 
-    preset_key = getattr(args, "preset", config.DEFAULT_PRESET) or config.DEFAULT_PRESET
-    p = config.get_preset(preset_key)
+    preset_key = getattr(args, "preset", presets.DEFAULT_PRESET) or presets.DEFAULT_PRESET
+    p = presets.get_preset(preset_key)
     engine_type = getattr(args, "engine", None) or p.get("engine_type", "diffusion")
     mode = getattr(args, "mode", None) or p.get("mode", "restore")
     res_val = args.resolution if (getattr(args, "resolution", None) and args.resolution != "FullHD") else p.get("output_size", "FullHD")
@@ -450,19 +460,13 @@ def cmd_batch(args):
     print(f"=======================================================")
 
     pipeline = VideoRestorationPipeline()
-    out_dir = Path(args.output) if getattr(args, "output", None) else config.get_last_output_folder()
+    out_dir = Path(args.output) if getattr(args, "output", None) else user_settings.get_last_output_folder()
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    mode_tag = f"superres_{superres_model_val.split('.')[0].lower()}" if engine_type == "superres" else ("relayvsr" if engine_type == "relayvsr" else (mode if mode != "restore" else "restored"))
 
     results = []
     for idx, fpath in enumerate(unique_files, 1):
         fp = Path(fpath)
-        out_file = config.get_unique_output_path(
-            output_dir=out_dir,
-            base_stem=f"{fp.stem}_{mode_tag}",
-            suffix=".mp4"
-        )
+        out_file = outputs.suggested_output_path(fp, base_params, out_dir)
 
         print(f"\n-------------------------------------------------------")
         print(f" [BATCH {idx}/{len(unique_files)}] {fp.name}")
@@ -470,7 +474,7 @@ def cmd_batch(args):
         print(f"-------------------------------------------------------")
 
         try:
-            res = pipeline.restore_footage(
+            res = pipeline.run(RestoreRequest(
                 input_video_path=fp,
                 output_file=out_file,
                 output_dir=out_dir,
@@ -491,8 +495,7 @@ def cmd_batch(args):
                 teacache_thresh=teacache_thresh_val,
                 reference_image=getattr(args, "reference", None),
                 extract_depth=getattr(args, "depth", False),
-                progress_callback=make_cli_progress()
-            )
+            ), make_cli_progress())
             results.append({"file": fp.name, "status": "SUCCESS", "output": str(out_file)})
             print(f"[OK] Completed: {out_file.name}")
         except Exception as e:
@@ -522,7 +525,14 @@ def main():
     p_dl.add_argument("--bf16", action="store_true", help="Download full BF16 instead of INT8")
     p_dl.add_argument("--loras-only", action="store_true", help="Download only Restore & Refine IC-LoRAs")
     p_dl.add_argument("--relayvsr", action="store_true", help="Install RelayVSR streaming 4x upscaler (separate venv + weights)")
+    p_dl.add_argument("--sol", action="store_true", help="Download the NVIDIA SoL-Refiner models")
+    p_dl.add_argument("--token", default=None, help="Save this Hugging Face token first (gated LTX-2.5 repo)")
     p_dl.set_defaults(func=cmd_download)
+
+    # token
+    p_tok = subparsers.add_parser("token", help="Save the Hugging Face access token")
+    p_tok.add_argument("token", nargs="?", default=None, help="The token (prompted for when omitted)")
+    p_tok.set_defaults(func=cmd_token)
 
     # preprocess
     p_prep = subparsers.add_parser("preprocess", help="Preprocess video for LTX-2.5")
@@ -542,7 +552,7 @@ def main():
     p_res.add_argument("--max-frames", type=int, default=None, help="Cap maximum frames to process (e.g. 65 for preview)")
     p_res.add_argument("--start-frame", "--in", type=int, default=None, dest="start_frame", help="In Point / Start frame index (0-based)")
     p_res.add_argument("--end-frame", "--out", type=int, default=None, dest="end_frame", help="Out Point / End frame index (0-based)")
-    p_res.add_argument("--preset", default=config.DEFAULT_PRESET, help=f"Restoration preset ID (default: {config.DEFAULT_PRESET})")
+    p_res.add_argument("--preset", default=presets.DEFAULT_PRESET, help=f"Restoration preset ID (default: {presets.DEFAULT_PRESET})")
     p_res.add_argument("--engine", default=None, choices=["diffusion", "sol_refiner", "superres", "relayvsr"], help="Override engine type")
     p_res.add_argument("--prompt", default=None, help="Custom positive prompt override")
     p_res.add_argument("--negative", default=None, help="Custom negative prompt override")
@@ -632,7 +642,7 @@ def main():
     p_batch.add_argument("--add-only", action="store_true", help="Add jobs to queue_state.json without immediate execution")
     p_batch.add_argument("--output", "-o", default=None, help="Target output folder")
     p_batch.add_argument("--max-frames", type=int, default=None, help="Cap maximum frames per clip")
-    p_batch.add_argument("--preset", default=config.DEFAULT_PRESET, help=f"Restoration preset ID (default: {config.DEFAULT_PRESET})")
+    p_batch.add_argument("--preset", default=presets.DEFAULT_PRESET, help=f"Restoration preset ID (default: {presets.DEFAULT_PRESET})")
     p_batch.add_argument("--engine", default=None, choices=["diffusion", "sol_refiner", "superres", "relayvsr"], help="Override engine type")
     p_batch.add_argument("--superres-model", default=None, help="Super-resolution model filename")
     p_batch.add_argument("--prompt", default=None, help="Custom positive prompt override")
@@ -651,6 +661,7 @@ def main():
     p_batch.set_defaults(func=cmd_batch)
 
     args = parser.parse_args()
+    bootstrap.init()
     args.func(args)
 
 

@@ -2,7 +2,8 @@
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QDialog, QFrame, QLabel, QProgressBar, QSizePolicy, QVBoxLayout
+from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+                               QSizePolicy, QVBoxLayout)
 
 from app.ui import styles
 
@@ -76,6 +77,23 @@ class ProgressDialog(QDialog):
         lay.addWidget(self.bar)
         lay.addWidget(self.lbl_count)
 
+        # Error state: the message stays until the user closes it
+        self.lbl_error = QLabel("")
+        self.lbl_error.setWordWrap(True)
+        self.lbl_error.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.lbl_error.setStyleSheet(f"color: {styles.TEXT};")
+        self.btn_ok = QPushButton("OK")
+        self.btn_ok.setObjectName("primary")
+        self.btn_ok.clicked.connect(self.hide)
+        row = QHBoxLayout()
+        row.addStretch()
+        row.addWidget(self.btn_ok)
+        lay.addWidget(self.lbl_error)
+        lay.addSpacing(6)
+        lay.addLayout(row)
+        self._set_error_mode(False)
+
+        self._title = title
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._show_now)
@@ -84,6 +102,8 @@ class ProgressDialog(QDialog):
 
     def start(self, subject: str):
         self._done = False
+        self._set_error_mode(False)
+        self.lbl_title.setText(self._title)
         self.lbl_subject.setText(subject)
         self.set_step("Starting…")
         self._timer.start(self._delay_ms)
@@ -98,13 +118,29 @@ class ProgressDialog(QDialog):
             self.bar.setRange(0, 0)
             self.lbl_count.setText("")
 
+    def fail(self, title: str, message: str):
+        """Shows what went wrong right away and keeps it on screen until OK / Esc."""
+        self._done = True
+        self._timer.stop()
+        self.lbl_title.setText(title)
+        self.lbl_error.setText(message)
+        self._set_error_mode(True)
+        self._show_now(force=True)
+        self.btn_ok.setFocus()
+
+    def _set_error_mode(self, error: bool):
+        for wdg in (self.lbl_step, self.bar, self.lbl_count):
+            wdg.setVisible(not error)
+        self.lbl_error.setVisible(error)
+        self.btn_ok.setVisible(error)
+
     def finish(self):
         self._done = True
         self._timer.stop()
         self.hide()
 
-    def _show_now(self):
-        if self._done:
+    def _show_now(self, force: bool = False):
+        if self._done and not force:
             return
         self.adjustSize()
         parent = self.parentWidget()

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 import config
 
+import user_settings
 VIDEO_EXTS = (".mp4", ".mov", ".avi", ".mkv", ".webm")
 
 
@@ -459,13 +460,13 @@ class VideoPlayerWidget(QWidget):
             event.acceptProposedAction()
 
     def _on_browse_clicked(self):
-        start_dir = str(config.get_last_input_folder())
+        start_dir = str(user_settings.get_last_input_folder())
         files, _ = QFileDialog.getOpenFileNames(
             self, "Open Videos — pick several to queue them all", start_dir,
             "Video Files (*.mp4 *.mov *.avi *.mkv *.webm)"
         )
         if files:
-            config.set_last_input_folder(Path(files[0]).parent)
+            user_settings.set_last_input_folder(Path(files[0]).parent)
             self.videos_selected.emit(files)
 
     def _on_view_mode_changed(self, *_):

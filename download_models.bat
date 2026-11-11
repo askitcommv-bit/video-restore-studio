@@ -27,20 +27,20 @@ set /p choice="Enter choice (1-6): "
 
 if "%choice%"=="1" (
     echo Downloading INT8 model stack directly to ComfyUI models...
-    "%PYTHON_EXE%" model_downloader.py download
+    "%PYTHON_EXE%" restore_cli.py download
 ) else if "%choice%"=="2" (
     echo Downloading IC-LoRAs only...
-    "%PYTHON_EXE%" model_downloader.py download --loras-only
+    "%PYTHON_EXE%" restore_cli.py download --loras-only
 ) else if "%choice%"=="3" (
     echo Downloading BF16 model stack...
-    "%PYTHON_EXE%" model_downloader.py download --bf16
+    "%PYTHON_EXE%" restore_cli.py download --bf16
 ) else if "%choice%"=="4" (
-    "%PYTHON_EXE%" model_downloader.py token
+    "%PYTHON_EXE%" restore_cli.py token
 ) else if "%choice%"=="6" (
     echo Downloading NVIDIA SoL-Refiner models...
-    "%PYTHON_EXE%" model_downloader.py download --sol
+    "%PYTHON_EXE%" restore_cli.py download --sol
 ) else (
-    "%PYTHON_EXE%" model_downloader.py
+    "%PYTHON_EXE%" restore_cli.py status
 )
 
 pause

@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 import config
+import presets
+import user_settings
 from app.core.queue_manager import QueueManager, QueueJob
 from app.ui.styles import set_role
 from app.ui.widgets import ElidedLabel
@@ -23,11 +25,11 @@ def choose_batch_output_folder(parent, count: int) -> Optional[Path]:
     """Asks where a multi-file batch should be written (starts at the remembered output folder).
     The choice becomes the remembered folder; None means the user cancelled."""
     folder = QFileDialog.getExistingDirectory(
-        parent, f"Choose Output Folder for {count} Videos", str(config.get_last_output_folder())
+        parent, f"Choose Output Folder for {count} Videos", str(user_settings.get_last_output_folder())
     )
     if not folder:
         return None
-    config.set_last_output_folder(folder)
+    user_settings.set_last_output_folder(folder)
     return Path(folder)
 
 
@@ -276,12 +278,12 @@ class QueuePanel(QFrame):
 
     def _on_add_files_clicked(self):
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Add Videos to the Queue", str(config.get_last_input_folder()),
+            self, "Add Videos to the Queue", str(user_settings.get_last_input_folder()),
             "Video Files (*.mp4 *.mov *.avi *.mkv *.webm)"
         )
         if not files:
             return
-        config.set_last_input_folder(Path(files[0]).parent)
+        user_settings.set_last_input_folder(Path(files[0]).parent)
         out_dir = None
         if len(files) > 1:
             out_dir = choose_batch_output_folder(self, len(files))
@@ -296,12 +298,12 @@ class QueuePanel(QFrame):
                 cur_params = None
 
         if cur_params:
-            p_id = cur_params.get("preset", config.DEFAULT_PRESET)
-            p_name = cur_params.get("preset_name", config.get_preset(p_id).get("name", "Batch Restore"))
+            p_id = cur_params.get("preset", presets.DEFAULT_PRESET)
+            p_name = cur_params.get("preset_name", presets.get_preset(p_id).get("name", "Batch Restore"))
             base_params = dict(cur_params)
         else:
-            p_id = config.DEFAULT_PRESET
-            p_data = config.get_preset(p_id)
+            p_id = presets.DEFAULT_PRESET
+            p_data = presets.get_preset(p_id)
             p_name = p_data.get("name", "Batch Restore")
             base_params = {
                 "engine_type": p_data.get("engine_type", "diffusion"),

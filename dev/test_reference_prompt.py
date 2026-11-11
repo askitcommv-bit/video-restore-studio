@@ -3,7 +3,8 @@ import json
 import time
 from pathlib import Path
 import config
-from restore_engine import ComfyUIClient, build_sol_refiner_api_prompt
+from engine.comfy.client import ComfyUIClient
+from engine.comfy.graphs import build_sol_refiner_api_prompt
 
 def test_reference_sol():
     client = ComfyUIClient()

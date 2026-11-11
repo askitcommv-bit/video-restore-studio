@@ -10,7 +10,7 @@ import re
 import time
 import threading
 from typing import Optional, Dict, Any
-from PySide6.QtCore import Qt, Signal, QThread, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QTextEdit, QComboBox, QSpinBox, QCheckBox,
@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 import config
+import presets
+import user_settings
 import video_encoders
 from app.ui.styles import set_role
 from app.ui.widgets import ElidedLabel
@@ -45,32 +47,19 @@ def _divider() -> QFrame:
     return line
 
 
-class VideoAnalysisWorker(QThread):
-    """Background worker to analyze video defects without blocking the UI."""
-    analysis_ready = Signal(dict)
-
-    def __init__(self, video_path: str):
-        super().__init__()
-        self.video_path = video_path
-
-    def run(self):
-        try:
-            import video_preprocessor
-            res = video_preprocessor.analyze_video_defects(self.video_path)
-            self.analysis_ready.emit(res)
-        except Exception as e:
-            self.analysis_ready.emit({"error": str(e)})
-
-
 class SettingsPanel(QFrame):
     """Left-hand controls panel for video restoration configuration."""
 
     videos_selected = Signal(list)  # Browse multi-select: first is loaded, all are queued
     start_restore_clicked = Signal(dict)
     add_to_queue_clicked = Signal(dict)
+    rescan_requested = Signal(str)  # "Detect": scan the current video again (the app's VideoLoader does it)
+    engine_changed = Signal(str)  # the selected engine: 'relayvsr', 'superres', 'sol_refiner' or 'diffusion'
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, comfyui_available: bool = True):
+        """comfyui_available=False (no ComfyUI on this PC) offers only what runs without it: RelayVSR."""
         super().__init__(parent)
+        self.comfyui_available = comfyui_available
         self.setObjectName("sidebar")
         self.setMinimumWidth(320)
         self.current_video_path: Optional[str] = None
@@ -78,8 +67,6 @@ class SettingsPanel(QFrame):
         self.current_out_point: Optional[int] = None
         self.total_frames: int = 0
         self.fps: float = 24.0
-        # Scans still running are kept referenced: dropping a running QThread aborts the app
-        self._analysis_workers: set = set()
         self._syncing_ticks: bool = False
         self._custom_prompt_edited: bool = False
         self.selected_reference_image: Optional[str] = None
@@ -121,9 +108,9 @@ class SettingsPanel(QFrame):
         root.addWidget(scroll, stretch=1)
         root.addWidget(self._build_action_area())
 
-        # Initial preset setup: config.DEFAULT_PRESET
+        # Initial preset setup: presets.DEFAULT_PRESET
         self._is_applying_preset = False
-        default_idx = max(0, self.combo_presets.findData(config.DEFAULT_PRESET))
+        default_idx = max(0, self.combo_presets.findData(presets.DEFAULT_PRESET))
         self.combo_presets.setCurrentIndex(default_idx)
         self._on_preset_dropdown_changed(default_idx)
 
@@ -158,8 +145,9 @@ class SettingsPanel(QFrame):
         self.combo_presets = QComboBox()
         self.combo_presets.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.combo_presets.setMinimumContentsLength(12)
-        for pid, pdata in config.RESTORATION_PRESETS.items():
-            self.combo_presets.addItem(plain_name(pdata["name"]), pid)
+        for pid, pdata in presets.RESTORATION_PRESETS.items():
+            if self.comfyui_available or pdata.get("engine_type") == "relayvsr":
+                self.combo_presets.addItem(plain_name(pdata["name"]), pid)
         self.combo_presets.addItem("Custom settings", "custom")
         self.combo_presets.view().setMinimumWidth(self.combo_presets.view().sizeHintForColumn(0) + 24)
         self.combo_presets.currentIndexChanged.connect(self._on_preset_dropdown_changed)
@@ -276,6 +264,14 @@ class SettingsPanel(QFrame):
         self.sol_opts.setVisible(False)
         v.addWidget(self.sol_opts)
 
+        if not self.comfyui_available:
+            # The LTX, SoL-Refiner and Real-ESRGAN / UltraSharp engines run in ComfyUI
+            self.radio_diffusion.setVisible(False)
+            self.radio_sol.setVisible(False)
+            for i in reversed(range(self.combo_superres_model.count())):
+                if self.combo_superres_model.itemData(i) != config.RELAYVSR_MODEL_ID:
+                    self.combo_superres_model.removeItem(i)
+
         self.btn_group_engine.idToggled.connect(self._on_engine_toggled)
         self._on_strength_slider_changed(self.slider_strength.value())
         self._on_cfg_slider_changed(self.slider_cfg.value())
@@ -326,7 +322,8 @@ class SettingsPanel(QFrame):
         self.btn_autodetect = QPushButton("Detect")
         self.btn_autodetect.setObjectName("ghost")
         self.btn_autodetect.setToolTip("Scan frames for interlacing, color, noise and damage")
-        self.btn_autodetect.clicked.connect(self.run_auto_detection)
+        self.btn_autodetect.clicked.connect(
+            lambda: self.current_video_path and self.rescan_requested.emit(self.current_video_path))
         row.addWidget(self.btn_autodetect, alignment=Qt.AlignTop)
         v.addLayout(row)
 
@@ -491,6 +488,7 @@ class SettingsPanel(QFrame):
     def _sync_engine_sections(self):
         """Shows only the options the selected engine actually uses."""
         engine = self.current_engine()
+        self.engine_changed.emit(engine)
         self.superres_opts.setVisible(engine in ("superres", "relayvsr"))
         self.diffusion_opts.setVisible(engine == "diffusion")
         self.sol_opts.setVisible(engine == "sol_refiner")
@@ -508,7 +506,7 @@ class SettingsPanel(QFrame):
         if preset_id == "custom" or not preset_id:
             self._show_custom_summary()
             return
-        self._apply_preset_settings(config.get_preset(preset_id))
+        self._apply_preset_settings(presets.get_preset(preset_id))
 
     def _show_custom_summary(self):
         self.lbl_preset_desc.setText("Your own settings — adjust them under Customize.")
@@ -596,8 +594,17 @@ class SettingsPanel(QFrame):
     # -----------------------------------------------------------------
     # Video & range
     # -----------------------------------------------------------------
-    def set_video_metadata(self, meta: Dict[str, Any], scan: bool = True):
-        """scan=False when the caller runs the defect scan itself and hands the result to apply_detection."""
+    def begin_video(self, path: str):
+        """A video is being opened: its settings apply from now on (a batch queued right away uses them)."""
+        self.current_video_path = path
+        self.lbl_auto_status.setText("Scanning frames…")
+
+    def clear_video(self):
+        """The video couldn't be opened."""
+        self.current_video_path = None
+        self.lbl_auto_status.setText("Detected automatically when a video loads.")
+
+    def set_video_metadata(self, meta: Dict[str, Any]):
         self.current_video_path = meta["path"]
         self.lbl_file_name.setText(Path(meta["path"]).name)
         self.total_frames = meta.get("total_frames", 0)
@@ -612,10 +619,6 @@ class SettingsPanel(QFrame):
 
         self.btn_start.setEnabled(True)
         self.btn_add_to_queue.setEnabled(True)
-        if scan:
-            self.run_auto_detection()
-        else:
-            self.lbl_auto_status.setText("Scanning frames…")
 
     def on_in_out_changed(self, in_f: Optional[int], out_f: Optional[int]):
         self.current_in_point = in_f
@@ -637,13 +640,13 @@ class SettingsPanel(QFrame):
         return f"{int(sec // 60):02d}:{int(sec % 60):02d}.{int((sec % 1) * 10)}"
 
     def _on_browse_clicked(self):
-        start_dir = str(config.get_last_input_folder())
+        start_dir = str(user_settings.get_last_input_folder())
         files, _ = QFileDialog.getOpenFileNames(
             self, "Open Videos — pick several to queue them all", start_dir,
             "Video Files (*.mp4 *.mov *.avi *.mkv *.webm)"
         )
         if files:
-            config.set_last_input_folder(Path(files[0]).parent)
+            user_settings.set_last_input_folder(Path(files[0]).parent)
             self.videos_selected.emit(files)
 
     def _on_select_reference_clicked(self):
@@ -663,20 +666,11 @@ class SettingsPanel(QFrame):
     # -----------------------------------------------------------------
     # Fixes (defects), resolution & prompts
     # -----------------------------------------------------------------
-    def run_auto_detection(self):
-        """Scans loaded video in background thread to detect defects."""
-        if not self.current_video_path:
-            return
+    def show_scanning(self):
         self.lbl_auto_status.setText("Scanning frames…")
-        worker = VideoAnalysisWorker(self.current_video_path)
-        worker.analysis_ready.connect(lambda res, path=worker.video_path: self.apply_detection(res, path))
-        worker.finished.connect(lambda w=worker: self._analysis_workers.discard(w))
-        self._analysis_workers.add(worker)
-        worker.start()
 
-    def apply_detection(self, res: dict, video_path: Optional[str] = None):
-        if video_path is not None and video_path != self.current_video_path:
-            return  # a newer video was loaded while this one was being scanned
+    def apply_detection(self, res: dict):
+        """Sets the fix ticks from a defect scan (the caller only passes the current video's)."""
         if "error" in res or not res:
             self.lbl_auto_status.setText("Couldn't scan this video — set the fixes by hand.")
             return
@@ -741,7 +735,7 @@ class SettingsPanel(QFrame):
 
     def _update_pipeline_from_ticks(self):
         target_res = self.get_selected_resolution()
-        pipeline = config.build_pipeline_from_defects(self.get_defect_ticks(), target_res)
+        pipeline = presets.build_pipeline_from_defects(self.get_defect_ticks(), target_res)
         self._update_engine_badge(pipeline["mode"])
         if pipeline["mode"] == "two_stage":
             self.combo_tile.setCurrentIndex(2 if target_res == "FullHD" else 1)  # qHD / HD stage 1
@@ -804,10 +798,10 @@ class SettingsPanel(QFrame):
 
         ticks = self.get_defect_ticks()
         target_res = self.get_selected_resolution()
-        pipeline = config.build_pipeline_from_defects(ticks, target_res)
+        pipeline = presets.build_pipeline_from_defects(ticks, target_res)
 
-        preset_id = self.combo_presets.currentData() or config.DEFAULT_PRESET
-        preset_info = config.RESTORATION_PRESETS.get(preset_id, {})
+        preset_id = self.combo_presets.currentData() or presets.DEFAULT_PRESET
+        preset_info = presets.RESTORATION_PRESETS.get(preset_id, {})
         mode = preset_info.get("mode") or pipeline["mode"]
 
         sel_limit = self.combo_frames.currentData()

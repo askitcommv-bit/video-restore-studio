@@ -12,10 +12,11 @@ Output codec choices:
   h264  keep the rendered H.264 stream as is (no re-encode)
 """
 
-import subprocess
 import threading
 from dataclasses import dataclass
 from typing import Optional, Tuple
+
+import processes
 
 OUTPUT_CODECS = ("auto", "hevc", "h264")
 
@@ -50,8 +51,7 @@ def _works(enc: Encoder) -> bool:
     cmd = ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30",
            "-frames:v", "10", "-c:v", enc.name, *enc.args, *COMMON_ARGS, "-f", "null", "-"]
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=30,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        r = processes.run(cmd, capture_output=True, timeout=30)
         return r.returncode == 0
     except Exception:
         return False

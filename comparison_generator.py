@@ -9,6 +9,8 @@ Creates:
 import subprocess
 from pathlib import Path
 from typing import Optional
+
+import processes
 from video_preprocessor import get_video_info, get_video_encoder_args
 
 
@@ -66,7 +68,7 @@ def generate_side_by_side(
         str(output_path)
     ]
     
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    processes.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
     return output_path
 
 
@@ -120,7 +122,7 @@ def generate_split_screen(
         str(output_path)
     ]
     
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    processes.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
     return output_path
 
 
@@ -161,7 +163,7 @@ def generate_frame_comparison(
         str(output_image_path)
     ]
     
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    processes.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
     return output_image_path
 
 
