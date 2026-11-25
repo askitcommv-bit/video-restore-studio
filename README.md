@@ -2,6 +2,8 @@
 
 # Video Restore Studio
 
+[![Support Video Restore Studio](https://img.shields.io/badge/%E2%99%A5-Support%20Video%20Restore%20Studio-e86a8a)](https://askit.fun/video-restore/support/)
+
 A local desktop app for upscaling and restoring old video on a single consumer GPU
 (built and tuned on an RTX 5060 Ti 16 GB, Windows 11).
 
