@@ -1,6 +1,7 @@
 # Personal state and secrets (config.json holds the Hugging Face token)
 config.json
 queue_state.json
+supporters_cache.json
 
 # Media, results and resumable job parts
 inputs/

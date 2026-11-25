@@ -1,6 +1,6 @@
 """
 Persistent per-user settings in config.json (in the project folder): remembered folders,
-measured speeds, the Hugging Face token.
+measured speeds, the Hugging Face token, whether the one-time support card was shown.
 """
 
 import json
@@ -74,3 +74,15 @@ def set_last_output_folder(folder_path: Path | str) -> None:
         p = p.parent
     if p.exists():
         set_user_setting("last_output_folder", str(p.resolve()))
+
+
+_SUPPORT_WELCOME_SEEN = "support_welcome_seen"
+
+
+def support_welcome_seen() -> bool:
+    """True once the first-launch support card was shown and dismissed (it is never shown again)."""
+    return bool(get_user_setting(_SUPPORT_WELCOME_SEEN, False))
+
+
+def mark_support_welcome_seen() -> None:
+    set_user_setting(_SUPPORT_WELCOME_SEEN, True)

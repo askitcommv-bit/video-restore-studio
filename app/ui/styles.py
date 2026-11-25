@@ -5,6 +5,7 @@ One neutral palette and one accent. Widgets pick a role through objectName inste
 inline styles:
   QLabel   title · section · muted · faint · status-ok/warn/error/info
   QPushButton  primary · ghost · segment (checkable) · danger
+  QToolButton  icon · ghost · heart
   QFrame   sidebar · panel · divider
 """
 
@@ -21,6 +22,7 @@ ACCENT_HOVER = "#7AA2FF"
 OK = "#3FB97F"
 WARN = "#E0A84A"
 ERROR = "#E5665F"
+HEART = "#E86A8A"  # the support heart and the supporters wall's badges
 
 DARK_THEME_QSS = f"""
 QMainWindow, QDialog, QMessageBox {{
@@ -116,6 +118,15 @@ QPushButton#icon, QToolButton#icon {{
     padding: 2px 8px;
 }}
 QPushButton#icon:hover, QToolButton#icon:hover {{ background-color: {RAISED}; }}
+
+QToolButton#heart {{
+    background: transparent;
+    border: 1px solid transparent;
+    color: {FAINT};
+    font-size: 15px;
+    padding: 2px 6px;
+}}
+QToolButton#heart:hover {{ background-color: {RAISED}; color: {HEART}; }}
 
 QPushButton#danger {{ background: transparent; border: 1px solid transparent; color: {MUTED}; padding: 4px 8px; }}
 QPushButton#danger:hover {{ background-color: #2A1C1D; color: {ERROR}; }}

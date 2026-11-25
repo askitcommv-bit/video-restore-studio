@@ -1,4 +1,4 @@
-"""The window's header: logo and name, setup reminder, ComfyUI / GPU status, Outputs, ☰ menu."""
+"""The window's header: logo and name, setup reminder, ComfyUI / GPU status, Outputs, ♥ support, ☰ menu."""
 
 from typing import Optional
 
@@ -12,6 +12,7 @@ from app.ui import styles
 class HeaderBar(QWidget):
     setup_clicked = Signal()
     outputs_clicked = Signal()
+    support_clicked = Signal()
 
     def __init__(self, menu: QMenu, parent=None):
         super().__init__(parent)
@@ -52,6 +53,13 @@ class HeaderBar(QWidget):
         btn_outputs.setToolTip("Open the output folder")
         btn_outputs.clicked.connect(self.outputs_clicked)
         lay.addWidget(btn_outputs)
+
+        btn_support = QToolButton()
+        btn_support.setText("♥")
+        btn_support.setObjectName("heart")
+        btn_support.setToolTip("Support Video Restore Studio · supporters wall")
+        btn_support.clicked.connect(self.support_clicked)
+        lay.addWidget(btn_support)
 
         btn_more = QToolButton()
         btn_more.setText("☰")

@@ -44,6 +44,7 @@ FFMPEG_BIN_DIR = TOOLS_DIR / "ffmpeg" / "bin"
 UV_EXE = TOOLS_DIR / "uv" / "uv.exe"
 
 CONFIG_JSON_PATH = PROJECT_DIR / "config.json"
+SUPPORTERS_CACHE_PATH = PROJECT_DIR / "supporters_cache.json"  # last supporters wall, shown when offline
 WORKFLOWS_DIR = PROJECT_DIR / "workflows"
 INPUTS_DIR = PROJECT_DIR / "inputs"
 OUTPUTS_DIR = PROJECT_DIR / "outputs"
@@ -63,6 +64,13 @@ COMFYUI_HOST = os.environ.get("COMFYUI_HOST", "127.0.0.1")
 COMFYUI_PORT = int(os.environ.get("COMFYUI_PORT", "8188"))
 COMFYUI_BASE_URL = f"http://{COMFYUI_HOST}:{COMFYUI_PORT}"
 COMFYUI_WS_URL = f"ws://{COMFYUI_HOST}:{COMFYUI_PORT}/ws"
+
+# Supporting the app on askit.fun: the support page, and the shout-outs feed behind the supporters wall
+# (format: askit-landingpage website/api/README_SHOUTOUTS.md). The API is open; once a key is set for
+# Video Restore in the askit.fun admin, put it here (or in the environment): it is sent as X-API-Key.
+SUPPORT_URL = "https://askit.fun/video-restore/support/"
+SHOUTOUTS_URL = "https://askit.fun/api/videorestore-shoutouts.php"
+SHOUTOUTS_API_KEY = os.environ.get("VIDEO_RESTORE_SHOUTOUTS_KEY", "")
 
 # Models Directory in ComfyUI
 MODELS_DIR = COMFYUI_DIR / "models"

@@ -132,14 +132,23 @@ Shared
   comparison_generator.py side-by-side and split comparison renders
 
 Desktop app (app/)
-  core/                   queue, video loader, job submission checks, system status (no widgets)
-  ui/                     main window, header, sidebar, player, queue, setup dialog, theme
+  core/                   queue, video loader, job submission checks, system status, supporters wall
+                          feed (no widgets)
+  ui/                     main window, header, sidebar, player, queue, setup dialog, support window,
+                          theme
 
 dev/                      debugging scripts against a running ComfyUI, and the original ComfyUI
                           workflow templates (the app builds its graphs in code; not needed to run it)
 docs/                     prompt guide, VRAM/performance notes
+tests/                    unit tests: python -m unittest discover tests
 build_exe.bat             PyInstaller build of the desktop app
 ```
+
+## Support
+
+Video Restore Studio is free and runs entirely on your own PC. If it's useful to you, you can support
+its development at [askit.fun/video-restore/support](https://askit.fun/video-restore/support/); the ♥ in
+the app's header opens that page and the supporters wall.
 
 ## LTX-2.5 model reference
 

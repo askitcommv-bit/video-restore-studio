@@ -20,6 +20,7 @@ import setup_manager
 import user_settings
 from app.core import job_submission
 from app.core.queue_manager import QueueJob, QueueManager
+from app.core.supporters import SupportersFeed
 from app.core.system_status import SystemStatusMonitor
 from app.core.video_loader import VideoLoader
 from app.ui.header_bar import HeaderBar
@@ -27,6 +28,7 @@ from app.ui.queue_panel import QueuePanel, choose_batch_output_folder
 from app.ui.settings_panel import SettingsPanel
 from app.ui.setup_dialog import SetupDialog
 from app.ui.styles import DARK_THEME_QSS
+from app.ui.support_dialog import SupportDialog, WelcomeSupportDialog
 from app.ui.video_viewport import VIDEO_EXTS, VideoPlayerWidget
 from app.ui.widgets import ProgressDialog
 from engine import ComfyUIClient, VideoRestorationPipeline
@@ -71,6 +73,8 @@ class MainWindow(QMainWindow):
         self.queue_manager = QueueManager(VideoRestorationPipeline(self.client))
         self.loader = VideoLoader(self)
         self.status_monitor = SystemStatusMonitor(self.client, parent=self)
+        self.supporters = SupportersFeed(parent=self)
+        self.support_dialog: Optional[SupportDialog] = None
 
         self.current_raw_video: Optional[str] = None
         self.current_restored_video: Optional[str] = None
@@ -81,8 +85,7 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._connect_services()
         self.status_monitor.poll()
-        # First run (or anything missing): offer the downloads once the window is up
-        QTimer.singleShot(400, lambda: setup_manager.needs_setup() and self.open_setup())
+        QTimer.singleShot(400, self._startup_prompts)
 
     # -----------------------------------------------------------------
     # Layout and wiring
@@ -104,6 +107,7 @@ class MainWindow(QMainWindow):
         self.header = HeaderBar(menu)
         self.header.setup_clicked.connect(self.open_setup)
         self.header.outputs_clicked.connect(self._open_outputs_folder)
+        self.header.support_clicked.connect(self.open_support)
         self.header.set_setup_needed(setup_manager.needs_setup())
         main_layout.addWidget(self.header)
 
@@ -198,8 +202,32 @@ class MainWindow(QMainWindow):
             event.ignore()
 
     # -----------------------------------------------------------------
-    # Setup and system status
+    # Startup prompts, setup and system status
     # -----------------------------------------------------------------
+    def _startup_prompts(self):
+        """Once the window is up: the downloads when anything is missing (first run), then, on the very
+        first launch only, the support card."""
+        if setup_manager.needs_setup():
+            self.open_setup()
+        self._welcome_support()
+
+    def _welcome_support(self):
+        """The one-time support card. Never over a running queue: then it waits for a later launch."""
+        if user_settings.support_welcome_seen() or self.queue_manager.is_running:
+            return
+        dlg = WelcomeSupportDialog(self)
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.finished.connect(lambda _result: user_settings.mark_support_welcome_seen())
+        dlg.open()
+
+    def open_support(self):
+        """The ♥ window (support link, supporters wall). Not modal: the queue keeps running and stays usable."""
+        if self.support_dialog is None:
+            self.support_dialog = SupportDialog(self.supporters, self)
+        self.support_dialog.show()
+        self.support_dialog.raise_()
+        self.support_dialog.activateWindow()
+
     def open_setup(self, preselect: tuple = ()):
         dlg = SetupDialog(self, preselect)
         dlg.changed.connect(lambda: self.header.set_setup_needed(setup_manager.needs_setup()))
