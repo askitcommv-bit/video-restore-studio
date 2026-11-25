@@ -211,6 +211,32 @@ class DialogTests(unittest.TestCase):
             self.assertIn("“My wedding tape looks new!”", texts)
 
 
+class QrTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_qr_pixmap_is_square_black_on_white(self):
+        from app.ui.qr import qr_pixmap
+        pm = qr_pixmap("https://askit.fun/video-restore/support/", 150, device_pixel_ratio=2.0)
+        img = pm.toImage()
+        self.assertEqual((img.width(), img.height()), (300, 300))
+        self.assertEqual(pm.deviceIndependentSize().width(), 150)
+        self.assertEqual(img.pixelColor(0, 0).name(), "#ffffff")  # quiet zone
+        colors = {img.pixelColor(x, y).name() for x in range(0, 300, 3) for y in range(0, 300, 3)}
+        self.assertEqual(colors, {"#ffffff", "#000000"})
+
+    def test_both_dialogs_show_the_qr_code(self):
+        from app.ui.support_dialog import SupportDialog, WelcomeSupportDialog
+        with tempfile.TemporaryDirectory() as tmp:
+            feed = supporters.SupportersFeed(cache_path=Path(tmp) / "c.json")
+            for dlg in (WelcomeSupportDialog(), SupportDialog(feed)):
+                qr = [lbl for lbl in dlg.findChildren(QLabel)
+                      if lbl.accessibleName() == "QR code for https://askit.fun/video-restore/support/"]
+                self.assertEqual(len(qr), 1, type(dlg).__name__)
+                self.assertFalse(qr[0].pixmap().isNull())
+
+
 class WordingTests(unittest.TestCase):
     def test_no_donate_wording(self):
         """Stripe requires 'support' wording: nothing the app ships may say donate / donation."""

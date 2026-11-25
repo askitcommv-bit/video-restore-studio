@@ -5,3 +5,4 @@ opencv-python>=4.10
 numpy>=1.26
 requests>=2.31
 Pillow>=10.0
+qrcode>=7.4

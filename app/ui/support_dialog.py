@@ -1,7 +1,7 @@
 """
 Supporting the app: the one-time welcome card (first launch) and the support window the header's ♥
-opens (support link and supporters wall). The support window is not modal, so the player, the queue
-and a running restore carry on while it is open.
+opens (support page as a QR code, link and button, and the supporters wall). The support window is not
+modal, so the player, the queue and a running restore carry on while it is open.
 """
 
 from typing import Optional
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QPushButton
 import config
 from app.core.supporters import Shoutout, SupportersFeed, Wall
 from app.ui import styles
+from app.ui.qr import qr_pixmap
 
 APP_NAME = "Video Restore Studio"
 SUPPORT_BUTTON_TEXT = f"♥  Support {APP_NAME}"
@@ -42,6 +43,32 @@ def _support_link() -> QLabel:
     return lbl
 
 
+def _support_qr(size: int) -> QLabel:
+    """The support page as a QR code, for opening it on a phone."""
+    lbl = QLabel()
+    lbl.setPixmap(qr_pixmap(config.SUPPORT_URL, size, lbl.devicePixelRatioF()))
+    lbl.setFixedSize(size, size)
+    lbl.setToolTip("Scan with your phone's camera to open the support page")
+    lbl.setAccessibleName(f"QR code for {config.SUPPORT_URL}")
+    return lbl
+
+
+def _with_qr(content: QVBoxLayout, qr_size: int) -> QHBoxLayout:
+    """The QR code on the left, `content` beside it."""
+    row = QHBoxLayout()
+    row.setSpacing(20)
+    qr_col = QVBoxLayout()
+    qr_col.setSpacing(6)
+    qr_col.addWidget(_support_qr(qr_size))
+    hint = _label("Scan with your phone", "faint", wrap=False)
+    hint.setAlignment(Qt.AlignHCenter)
+    qr_col.addWidget(hint)
+    qr_col.addStretch()
+    row.addLayout(qr_col)
+    row.addLayout(content, stretch=1)
+    return row
+
+
 def _support_button(on_click=None) -> QPushButton:
     btn = QPushButton(SUPPORT_BUTTON_TEXT)
     btn.setObjectName("primary")
@@ -56,21 +83,24 @@ class WelcomeSupportDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Welcome to {APP_NAME}")
-        self.setMinimumWidth(460)
-        self.setMaximumWidth(520)
+        self.setMinimumWidth(600)
+        self.setMaximumWidth(660)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, 20, 24, 18)
-        lay.setSpacing(10)
+        lay.setSpacing(14)
         lay.addWidget(_label(f"Welcome to {APP_NAME}", "heading"))
-        lay.addWidget(_label(f"{APP_NAME} is free, and everything runs on your own PC: your videos never "
-                             "leave it, and there is no account or subscription."))
-        lay.addWidget(_label("If it brings your old footage back to life and you'd like to help its "
-                             "development, you can support it on askit.fun.", "muted"))
-        lay.addWidget(_support_link())
-        lay.addWidget(_label("This is the only time we'll ask. The ♥ at the top right opens the support page "
-                             "and the supporters wall whenever you like.", "faint"))
-        lay.addSpacing(6)
+        text = QVBoxLayout()
+        text.setSpacing(10)
+        text.addWidget(_label(f"{APP_NAME} is free, and everything runs on your own PC: your videos never "
+                              "leave it, and there is no account or subscription."))
+        text.addWidget(_label("If it brings your old footage back to life and you'd like to help its "
+                              "development, you can support it: scan the code or open", "muted"))
+        text.addWidget(_support_link())
+        text.addWidget(_label("This is the only time we'll ask. The ♥ at the top right opens the support page "
+                              "and the supporters wall whenever you like.", "faint"))
+        text.addStretch()
+        lay.addLayout(_with_qr(text, 130))
 
         row = QHBoxLayout()
         row.addStretch()
@@ -119,21 +149,26 @@ class SupportDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"Support {APP_NAME}")
         self.setModal(False)
-        self.resize(560, 600)
-        self.setMinimumSize(460, 420)
+        self.resize(620, 680)
+        self.setMinimumSize(560, 520)
         self.feed = feed
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, 20, 24, 18)
         lay.setSpacing(10)
         lay.addWidget(_label(f"Support {APP_NAME}", "heading"))
-        lay.addWidget(_label(f"{APP_NAME} is free and runs entirely on your own PC. Supporters keep it "
-                             "that way and help it improve.", "muted"))
-        link_row = QHBoxLayout()
-        link_row.addWidget(_support_link())
-        link_row.addStretch()
-        link_row.addWidget(_support_button())
-        lay.addLayout(link_row)
+        text = QVBoxLayout()
+        text.setSpacing(10)
+        text.addWidget(_label(f"{APP_NAME} is free and runs entirely on your own PC. Supporters keep it "
+                              "that way and help it improve.", "muted"))
+        text.addWidget(_label("Scan the code with your phone, or open the support page here:", "muted"))
+        text.addWidget(_support_link())
+        text.addStretch()
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(_support_button())
+        btn_row.addStretch()
+        text.addLayout(btn_row)
+        lay.addLayout(_with_qr(text, 150))
 
         divider = QFrame()
         divider.setObjectName("divider")
